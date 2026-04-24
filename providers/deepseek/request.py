@@ -6,6 +6,10 @@ from loguru import logger
 
 from providers.common.message_converter import build_base_request_body
 
+# Models with built-in chain-of-thought that must NOT receive the thinking param.
+# EXTENSION POINT: add future deepseek-vN-reasoner variants here.
+_BUILTIN_REASONER_MODELS: frozenset[str] = frozenset({"deepseek-reasoner"})
+
 
 def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     """Build OpenAI-format request body from Anthropic request for DeepSeek."""
@@ -24,7 +28,7 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     if request_extra:
         extra_body.update(request_extra)
 
-    if thinking_enabled and body.get("model") != "deepseek-reasoner":
+    if thinking_enabled and body.get("model") not in _BUILTIN_REASONER_MODELS:
         extra_body.setdefault("thinking", {"type": "enabled"})
 
     if extra_body:

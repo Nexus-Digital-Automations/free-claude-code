@@ -29,7 +29,7 @@ def _configured_env_files(model_config: Mapping[str, Any]) -> tuple[Path, ...]:
     configured = model_config.get("env_file")
     if configured is None:
         return ()
-    if isinstance(configured, (str, Path)):
+    if isinstance(configured, str | Path):
         return (Path(configured),)
     return tuple(Path(item) for item in configured)
 

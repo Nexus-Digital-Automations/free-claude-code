@@ -107,10 +107,10 @@ MODEL="open_router/stepfun/step-3.5-flash:free"     # fallback
 ```dotenv
 DEEPSEEK_API_KEY="your-deepseek-key-here"
 
-MODEL_OPUS="deepseek/deepseek-reasoner"
-MODEL_SONNET="deepseek/deepseek-chat"
-MODEL_HAIKU="deepseek/deepseek-chat"
-MODEL="deepseek/deepseek-chat"                      # fallback
+MODEL_OPUS="deepseek/deepseek-v4-pro"
+MODEL_SONNET="deepseek/deepseek-v4-flash"
+MODEL_HAIKU="deepseek/deepseek-v4-flash"
+MODEL="deepseek/deepseek-v4-flash"                  # fallback
 ```
 
 </details>
@@ -379,10 +379,10 @@ Browse: [openrouter.ai/models](https://openrouter.ai/models) · [Free models](ht
 <details>
 <summary><b>DeepSeek models</b></summary>
 
-DeepSeek currently exposes the direct API models:
+- `deepseek/deepseek-v4-pro` — 1.6T MoE, 1M context, top-tier reasoning
+- `deepseek/deepseek-v4-flash` — 284B MoE, 1M context, fast and economical
 
-- `deepseek/deepseek-chat`
-- `deepseek/deepseek-reasoner`
+> **Note:** `deepseek-chat` and `deepseek-reasoner` are deprecated and retire July 24, 2026.
 
 Browse: [api-docs.deepseek.com](https://api-docs.deepseek.com)
 

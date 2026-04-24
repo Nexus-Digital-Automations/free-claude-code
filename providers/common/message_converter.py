@@ -87,9 +87,12 @@ class AnthropicToOpenAIConverter:
                 if not include_thinking:
                     continue
                 thinking = get_block_attr(block, "thinking", "")
-                content_parts.append(f"<think>\n{thinking}\n</think>")
                 if emit_reasoning_content:
+                    # reasoning_content field carries the thinking for DeepSeek/OpenRouter;
+                    # don't also wrap it in <think> tags — that's redundant and wastes tokens.
                     thinking_parts.append(thinking)
+                else:
+                    content_parts.append(f"<think>\n{thinking}\n</think>")
             elif block_type == "tool_use":
                 tool_input = get_block_attr(block, "input", {})
                 tool_calls.append(
