@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Owns: reporting current cc mode and whether the proxy server is reachable.
+# Does NOT own: changing mode (cc-set-mode) or starting the server (start.sh).
+# Called by: the /cc-status slash command and the user from the shell.
+# Calls:     curl (health probe).
+set -euo pipefail
+
+readonly MODE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/free-claude-code/mode"
+readonly PROXY_HOST="${HOST:-127.0.0.1}"
+readonly PROXY_PORT="${PORT:-8082}"
+readonly PROXY_BASE_URL="http://$PROXY_HOST:$PROXY_PORT"
+
+mode="direct"
+if [[ -f "$MODE_FILE" ]]; then
+    raw="$(tr -d '[:space:]' < "$MODE_FILE")"
+    case "$raw" in
+        proxy|direct) mode="$raw" ;;
+    esac
+fi
+
+if curl -fsS --max-time 2 "$PROXY_BASE_URL/health" >/dev/null 2>&1; then
+    server_status="up at $PROXY_BASE_URL"
+else
+    server_status="down (cc will auto-start it on next proxy-mode launch)"
+fi
+
+case "$mode" in
+    proxy)  effective_base_url="$PROXY_BASE_URL" ;;
+    direct) effective_base_url="(unset — direct to api.anthropic.com)" ;;
+esac
+
+cat <<EOF
+Mode:     $mode
+Base URL: $effective_base_url
+Server:   $server_status
+EOF

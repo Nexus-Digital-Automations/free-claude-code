@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Owns: launching `claude` with the backend selected by the saved mode.
+# Does NOT own: storing keys (Keychain via setup-cc-switcher.sh) or starting
+#               the proxy server (delegates to scripts/start.sh).
+# Called by: the user, directly or via the `cc` symlink in ~/.local/bin.
+# Calls:     `security` (Keychain), curl (health probe), scripts/start.sh,
+#            and finally `claude` via exec.
+#
+# Mode is read from ~/.config/free-claude-code/mode (counterpart writer:
+# scripts/cc-set-mode). Missing or unknown mode => direct, since that's the
+# safer default (real Anthropic key, no surprise proxy routing).
+set -euo pipefail
+
+readonly MODE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/free-claude-code/mode"
+readonly KEYCHAIN_DIRECT="free-claude-code/anthropic-direct"
+readonly KEYCHAIN_PROXY="free-claude-code/proxy-auth"
+readonly PROXY_HOST="${HOST:-127.0.0.1}"
+readonly PROXY_PORT="${PORT:-8082}"
+readonly PROXY_BASE_URL="http://$PROXY_HOST:$PROXY_PORT"
+
+repo_root() {
+    local source="${BASH_SOURCE[0]}"
+    # Resolve symlink so ~/.local/bin/cc finds the real scripts/ dir.
+    while [[ -L "$source" ]]; do
+        local dir
+        dir="$(cd -P "$(dirname "$source")" && pwd)"
+        source="$(readlink "$source")"
+        [[ "$source" != /* ]] && source="$dir/$source"
+    done
+    cd -P "$(dirname "$source")/.." && pwd
+}
+
+read_mode() {
+    if [[ -f "$MODE_FILE" ]]; then
+        local raw
+        raw="$(tr -d '[:space:]' < "$MODE_FILE")"
+        case "$raw" in
+            proxy|direct) printf '%s' "$raw"; return ;;
+        esac
+    fi
+    printf 'direct'
+}
+
+fetch_keychain() {
+    local service="$1"
+    if ! security find-generic-password -a "$USER" -s "$service" -w 2>/dev/null; then
+        echo "cc: missing Keychain entry '$service' for user '$USER'." >&2
+        echo "cc: run scripts/setup-cc-switcher.sh to create it." >&2
+        exit 1
+    fi
+}
+
+ensure_proxy_running() {
+    if curl -fsS --max-time 2 "$PROXY_BASE_URL/health" >/dev/null 2>&1; then
+        return
+    fi
+    echo "cc: proxy not responding on $PROXY_BASE_URL — starting it..." >&2
+    HOST="$PROXY_HOST" PORT="$PROXY_PORT" bash "$(repo_root)/scripts/start.sh" >&2
+}
+
+launch_proxy_mode() {
+    ensure_proxy_running
+    local token
+    token="$(fetch_keychain "$KEYCHAIN_PROXY")"
+    export ANTHROPIC_BASE_URL="$PROXY_BASE_URL"
+    export ANTHROPIC_API_KEY="$token"
+    exec claude "$@"
+}
+
+launch_direct_mode() {
+    local key
+    key="$(fetch_keychain "$KEYCHAIN_DIRECT")"
+    # Stale ANTHROPIC_BASE_URL would silently route to a proxy.
+    unset ANTHROPIC_BASE_URL
+    export ANTHROPIC_API_KEY="$key"
+    exec claude "$@"
+}
+
+main() {
+    local mode
+    mode="$(read_mode)"
+    case "$mode" in
+        proxy)  launch_proxy_mode  "$@" ;;
+        direct) launch_direct_mode "$@" ;;
+        *)      echo "cc: unreachable mode '$mode'" >&2; exit 2 ;;
+    esac
+}
+
+main "$@"
