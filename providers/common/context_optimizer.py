@@ -75,6 +75,15 @@ class ContextOptimizer:
     _inflight: ClassVar[set[str]] = set()
     # Strong refs prevent GC of fire-and-forget tasks (Python asyncio requirement).
     _background_tasks: ClassVar[set[asyncio.Task]] = set()
+    # Serialises all background Ollama calls so multiple simultaneous Claude Code
+    # instances don't pile concurrent requests onto a single Ollama process.
+    _ollama_semaphore: ClassVar[asyncio.Semaphore | None] = None
+
+    @classmethod
+    def _get_ollama_semaphore(cls) -> asyncio.Semaphore:
+        if cls._ollama_semaphore is None:
+            cls._ollama_semaphore = asyncio.Semaphore(1)
+        return cls._ollama_semaphore
 
     @classmethod
     async def optimize(cls, request_data: Any, settings: Any, provider: Any) -> Any:
@@ -324,16 +333,17 @@ class ContextOptimizer:
         """Compact via local Ollama. Stores in cache; returns compacted or original."""
         prompt = cls._build_prompt(messages)
         try:
-            # api_key="ollama" is required by the SDK but ignored by Ollama's server.
-            client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret — Ollama ignores api_key
-            resp = await client.chat.completions.create(
-                model=settings.ollama_model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=_COMPACTION_MAX_TOKENS,
-                temperature=_COMPACTION_TEMPERATURE,
-                stream=False,
-            )
-            await client.close()
+            async with cls._get_ollama_semaphore():
+                # api_key="ollama" is required by the SDK but ignored by Ollama's server.
+                client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret — Ollama ignores api_key
+                resp = await client.chat.completions.create(
+                    model=settings.ollama_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=_COMPACTION_MAX_TOKENS,
+                    temperature=_COMPACTION_TEMPERATURE,
+                    stream=False,
+                )
+                await client.close()
             content = resp.choices[0].message.content or ""
         except Exception as exc:
             logger.warning("CONTEXT_OPT: Ollama call failed {}: {}", type(exc).__name__, exc)
