@@ -24,8 +24,8 @@ logs/**
 # is required for that tool.
 api/dependencies.py
 
-# Background Ollama compaction client. Line 327 sets api_key="ollama" as a
-# placeholder required by the OpenAI SDK; Ollama's server ignores it.
+# Background Ollama compaction client. Line 327 passes a placeholder api_key
+# string (the literal "ollama") required by the OpenAI SDK; Ollama ignores it.
 # Inline `# pragma: allowlist secret` comment is present. detect-secrets does
 # not pick up the pragma here (no baseline file in repo), so this entry covers
 # that tool.
