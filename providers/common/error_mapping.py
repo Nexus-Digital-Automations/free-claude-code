@@ -35,11 +35,11 @@ def get_user_facing_error_message(
             return f"Provider request timed out after {read_timeout_s:g}s."
         return "Request timed out."
 
-    if isinstance(e, (RateLimitError, openai.RateLimitError)):
+    if isinstance(e, RateLimitError | openai.RateLimitError):
         return "Provider rate limit reached. Please retry shortly."
-    if isinstance(e, (AuthenticationError, openai.AuthenticationError)):
+    if isinstance(e, AuthenticationError | openai.AuthenticationError):
         return "Provider authentication failed. Check API key."
-    if isinstance(e, (InvalidRequestError, openai.BadRequestError)):
+    if isinstance(e, InvalidRequestError | openai.BadRequestError):
         return "Invalid request sent to provider."
     if isinstance(e, OverloadedError):
         return "Provider is currently overloaded. Please retry."

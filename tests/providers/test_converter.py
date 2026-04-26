@@ -217,7 +217,9 @@ def test_convert_assistant_message_thinking_include_reasoning_for_openrouter():
 
     assert len(result) == 1
     assert result[0]["reasoning_content"] == "I need to calculate this."
-    assert "<think>" in result[0]["content"]
+    # Thinking goes via reasoning_content field; <think> tags are not added to
+    # content — that would be redundant and waste tokens for the provider.
+    assert "<think>" not in result[0]["content"]
 
 
 def test_convert_assistant_message_thinking_removed_when_disabled():

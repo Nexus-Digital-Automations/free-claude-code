@@ -182,7 +182,7 @@ class MessagingRateLimiter:
                             )
                             wait_secs = (
                                 float(seconds)
-                                if isinstance(seconds, (int, float, str))
+                                if isinstance(seconds, int | float | str)
                                 else 30.0
                             )
                             self._paused_until = (

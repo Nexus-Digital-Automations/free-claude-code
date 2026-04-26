@@ -22,25 +22,11 @@ class DeepSeekProvider(OpenAICompatibleProvider):
         )
 
     def _build_request_body(self, request: Any) -> dict:
-        """Build request body, disabling thinking when history lacks reasoning_content.
-
-        DeepSeek requires that every prior assistant turn's reasoning_content is
-        echoed back when thinking mode is on. Claude Code's auto-compaction strips
-        thinking blocks, so we detect the gap pre-flight and fall back to no-thinking
-        rather than letting DeepSeek return a 400 mid-stream (where our retry can't
-        intercept it because the OpenAI SDK connects lazily).
-        """
-        thinking_enabled = self._is_thinking_enabled(request)
-        body = build_request_body(request, thinking_enabled=thinking_enabled)
-
-        if thinking_enabled:
-            assistant_msgs = [m for m in body.get("messages", []) if m.get("role") == "assistant"]
-            # Prior assistant turns exist but none carry reasoning_content → compaction
-            # stripped the thinking blocks. Disable thinking so DeepSeek accepts the request.
-            if assistant_msgs and not any(m.get("reasoning_content") for m in assistant_msgs):
-                body = build_request_body(request, thinking_enabled=False)
-
-        return body
+        """Internal helper for tests and shared building."""
+        return build_request_body(
+            request,
+            thinking_enabled=self._is_thinking_enabled(request),
+        )
 
     def _get_retry_request_body(self, error: Exception, body: dict) -> dict | None:
         """Retry without thinking when compacted history drops reasoning_content.

@@ -181,6 +181,7 @@ class OpenAICompatibleProvider(BaseProvider):
             len(body.get("messages", [])),
             len(body.get("tools", [])),
         )
+        logger.debug("{}_REQUEST_BODY:{} {}", tag, req_tag, body)
 
         yield sse.message_start()
 
@@ -285,7 +286,13 @@ class OpenAICompatibleProvider(BaseProvider):
                                 yield event
 
             except Exception as e:
-                logger.error("{}_ERROR:{} {}: {}", tag, req_tag, type(e).__name__, e)
+                logger.error(
+                    "{}_ERROR:{} {}: {} | body_model={} msg_count={} reasoning_content_present={}",
+                    tag, req_tag, type(e).__name__, e,
+                    body.get("model"),
+                    len(body.get("messages", [])),
+                    [bool(m.get("reasoning_content") is not None) for m in body.get("messages", []) if m.get("role") == "assistant"],
+                )
                 mapped_e = map_error(e)
                 error_occurred = True
                 if getattr(mapped_e, "status_code", None) == 405:

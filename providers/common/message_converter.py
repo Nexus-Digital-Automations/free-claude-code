@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+from loguru import logger
+
 
 def get_block_attr(block: Any, attr: str, default: Any = None) -> Any:
     """Get attribute from object or dict."""
@@ -42,7 +44,10 @@ class AnthropicToOpenAIConverter:
             content = msg.content
 
             if isinstance(content, str):
-                result.append({"role": role, "content": content})
+                msg: dict[str, Any] = {"role": role, "content": content}
+                if include_reasoning_content and role == "assistant":
+                    msg["reasoning_content"] = ""
+                result.append(msg)
             elif isinstance(content, list):
                 if role == "assistant":
                     result.extend(
@@ -58,7 +63,10 @@ class AnthropicToOpenAIConverter:
                         AnthropicToOpenAIConverter._convert_user_message(content)
                     )
             else:
-                result.append({"role": role, "content": str(content)})
+                msg = {"role": role, "content": str(content)}
+                if include_reasoning_content and role == "assistant":
+                    msg["reasoning_content"] = ""
+                result.append(msg)
 
         return result
 
@@ -74,7 +82,9 @@ class AnthropicToOpenAIConverter:
         content_parts: list[str] = []
         thinking_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
-        emit_reasoning_content = (
+        # Only emit reasoning_content when thinking is actually enabled — otherwise the
+        # field is meaningless and confuses providers that require it only in thinking mode.
+        emit_reasoning_content = include_thinking and (
             include_reasoning_for_openrouter or include_reasoning_content
         )
 
@@ -121,8 +131,19 @@ class AnthropicToOpenAIConverter:
         }
         if tool_calls:
             msg["tool_calls"] = tool_calls
-        if emit_reasoning_content and thinking_parts:
-            msg["reasoning_content"] = "\n".join(thinking_parts)
+        if emit_reasoning_content:
+            # Always emit reasoning_content when the provider requires it (DeepSeek/OpenRouter).
+            # DeepSeek's API requires the field to be present on EVERY assistant message when
+            # thinking mode is on — even turns where compaction stripped the thinking blocks.
+            # An empty string satisfies the "must be passed back" contract for those turns.
+            rc = "\n".join(thinking_parts) if thinking_parts else ""
+            msg["reasoning_content"] = rc
+            logger.debug(
+                "CONVERT: assistant msg reasoning_content={} thinking_parts_count={} has_tool_calls={}",
+                len(rc),
+                len(thinking_parts),
+                bool(tool_calls),
+            )
 
         return [msg]
 
