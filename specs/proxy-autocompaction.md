@@ -1,6 +1,6 @@
 ---
 title: Proxy-Level Autocompaction
-status: active
+status: in-progress
 created: 2026-04-25
 ---
 

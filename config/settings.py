@@ -164,17 +164,26 @@ class Settings(BaseSettings):
     enable_filepath_extraction_mock: bool = True
 
     # ==================== Context Autocompaction ====================
-    # Tier 1 (always-on): strip thinking blocks from old assistant turns.
-    # Tier 2 (triggered): when input tokens exceed the threshold, ask the
-    # configured provider to summarize older turns so subsequent requests
-    # stay affordable. See providers/common/context_optimizer.py.
+    # Tier 0: deterministic NLP strip (ANSI, dedup, truncate). Always-on.
+    # Tier 1: strip thinking blocks from old turns. Always-on.
+    # Tier 2a: background Ollama compaction at soft threshold (non-blocking).
+    # Tier 2b: sync provider compaction at hard threshold (blocking fallback).
+    # See providers/common/context_optimizer.py for full tier documentation.
     context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
     context_max_thinking_turns: int = Field(
         default=2, validation_alias="CONTEXT_MAX_THINKING_TURNS"
     )
+    context_compact_soft_threshold_tokens: int = Field(
+        default=80000, validation_alias="CONTEXT_COMPACT_SOFT_THRESHOLD_TOKENS"
+    )
     context_compact_threshold_tokens: int = Field(
         default=200000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
     )
+    # Ollama endpoint for background Tier 2a compaction.
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1", validation_alias="OLLAMA_BASE_URL"
+    )
+    ollama_model: str = Field(default="qwen2.5:7b", validation_alias="OLLAMA_MODEL")
 
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
