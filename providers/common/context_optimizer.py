@@ -126,9 +126,16 @@ class ContextOptimizer:
 
     @staticmethod
     def _apply_tier0(messages: list) -> list:
+        before_bytes = sum(len(ContextOptimizer._render_content(m.content)) for m in messages)
         messages = ContextOptimizer._strip_ansi_from_messages(messages)
         messages = ContextOptimizer._dedupe_tool_results(messages)
         messages = ContextOptimizer._truncate_long_outputs(messages)
+        after_bytes = sum(len(ContextOptimizer._render_content(m.content)) for m in messages)
+        if before_bytes != after_bytes:
+            logger.info(
+                "CONTEXT_OPT: tier0 bytes_before={} bytes_after={} saved={}",
+                before_bytes, after_bytes, before_bytes - after_bytes,
+            )
         return messages
 
     @staticmethod
@@ -407,6 +414,10 @@ class ContextOptimizer:
         split_index, summary = parsed
         # Keyed by the replaced prefix so _apply_prefix_cache can find it next turn.
         cls._cache_put(cls._cache_key(messages[:split_index]), (split_index, summary))
+        logger.info(
+            "CONTEXT_OPT: ollama compacted split_index={} msgs_before={} summary_chars={}",
+            split_index, len(messages), len(summary),
+        )
         return cls._apply_summary(messages, split_index, summary)
 
     # ---- Tier 2b: sync provider compaction ----
@@ -445,6 +456,10 @@ class ContextOptimizer:
 
         split_index, summary = parsed
         cls._cache_put(cls._cache_key(messages[:split_index]), (split_index, summary))
+        logger.info(
+            "CONTEXT_OPT: provider compacted split_index={} msgs_before={} summary_chars={}",
+            split_index, len(messages), len(summary),
+        )
         return cls._apply_summary(messages, split_index, summary)
 
     # ---- Shared compaction helpers ----

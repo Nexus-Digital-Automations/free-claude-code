@@ -18,7 +18,7 @@ Every observable decision made by the proxy — request routing, context optimiz
 - [ ] `logs/` directory listed in `.gitignore` (already present) — no log files committed
 - [ ] `routes.py` logs request received (request_id, model, provider, input_tokens) at INFO
 - [ ] `routes.py` logs request completed (request_id, duration_ms) at INFO
-- [ ] `context_optimizer.py` logs per-tier decisions: Tier 0 bytes_saved, Tier 1 blocks_stripped, cache hit with k value, Tier 2a scheduled/skipped, Tier 2b triggered — all at INFO
+- [x] `context_optimizer.py` logs per-tier decisions: Tier 0 bytes_saved, Tier 1 blocks_stripped, cache hit with k value, Tier 2a scheduled/skipped, Tier 2b triggered — all at INFO
 - [ ] `openai_compat.py` logs provider call completion (latency_ms, finish_reason, output_tokens estimate) at INFO
 - [ ] `cli/session.py` logs session_start/session_resume with workspace and session_id at INFO, exit at INFO with code
 - [ ] Running `tail -f logs/server.log | python3 -c "import sys,json; [print(json.loads(l)['message']) for l in sys.stdin]"` shows human-readable trace of a request flowing through the system

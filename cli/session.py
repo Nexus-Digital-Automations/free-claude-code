@@ -81,7 +81,7 @@ class CLISession:
                     "--dangerously-skip-permissions",
                     "--verbose",
                 ]
-                logger.info(f"Resuming Claude session {session_id}")
+                logger.info("CLI_SESSION: resume session_id={} workspace={}", session_id, self.workspace)
             else:
                 cmd = [
                     "claude",
@@ -92,7 +92,7 @@ class CLISession:
                     "--dangerously-skip-permissions",
                     "--verbose",
                 ]
-                logger.info("Starting new Claude session")
+                logger.info("CLI_SESSION: start workspace={}", self.workspace)
 
             if self.allowed_dirs:
                 for d in self.allowed_dirs:
@@ -178,11 +178,11 @@ class CLISession:
 
                 return_code = await self.process.wait()
                 logger.info(
-                    f"Claude CLI exited with code {return_code}, stderr_present={bool(stderr_text)}"
+                    "CLI_SESSION: exit code={} stderr_present={}", return_code, bool(stderr_text)
                 )
                 if return_code != 0 and not stderr_text:
                     logger.warning(
-                        f"CLI_SESSION: Process exited with code {return_code} but no stderr captured"
+                        "CLI_SESSION: exit code={} but no stderr captured", return_code
                     )
                 yield {
                     "type": "exit",
@@ -204,7 +204,7 @@ class CLISession:
                 extracted_id = self._extract_session_id(event)
                 if extracted_id:
                     self.current_session_id = extracted_id
-                    logger.info(f"Extracted session ID: {extracted_id}")
+                    logger.info("CLI_SESSION: session_id_captured id={}", extracted_id)
                     yield {"type": "session_info", "session_id": extracted_id}
 
             yield event
