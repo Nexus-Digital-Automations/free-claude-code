@@ -163,6 +163,19 @@ class Settings(BaseSettings):
     enable_suggestion_mode_skip: bool = True
     enable_filepath_extraction_mock: bool = True
 
+    # ==================== Context Autocompaction ====================
+    # Tier 1 (always-on): strip thinking blocks from old assistant turns.
+    # Tier 2 (triggered): when input tokens exceed the threshold, ask the
+    # configured provider to summarize older turns so subsequent requests
+    # stay affordable. See providers/common/context_optimizer.py.
+    context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
+    context_max_thinking_turns: int = Field(
+        default=2, validation_alias="CONTEXT_MAX_THINKING_TURNS"
+    )
+    context_compact_threshold_tokens: int = Field(
+        default=200000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
+    )
+
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
 

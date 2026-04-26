@@ -9,6 +9,7 @@ from loguru import logger
 
 from config.settings import Settings
 from providers.common import get_user_facing_error_message
+from providers.common.context_optimizer import ContextOptimizer
 from providers.exceptions import InvalidRequestError, ProviderError
 
 from .dependencies import get_provider_for_type, get_settings, require_api_key
@@ -114,6 +115,14 @@ async def create_message(
             len(request_data.messages),
         )
         logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
+
+        # Tier 1 strips stale thinking blocks; Tier 2 summarizes older turns
+        # via the same provider when the request crosses the token threshold.
+        # Counterpart: providers/common/context_optimizer.py
+        if settings.context_optimize:
+            request_data = await ContextOptimizer.optimize(
+                request_data, settings, provider
+            )
 
         input_tokens = get_token_count(
             request_data.messages, request_data.system, request_data.tools
