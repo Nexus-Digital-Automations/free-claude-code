@@ -71,6 +71,8 @@ def configure_logging(log_file: str, *, force: bool = False) -> None:
     # Remove default loguru handler (writes to stderr)
     logger.remove()
 
+    # Ensure logs/ (or any parent dir) exists before writing.
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     # Truncate log file on fresh start for clean debugging
     Path(log_file).write_text("")
 

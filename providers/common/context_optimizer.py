@@ -257,8 +257,8 @@ class ContextOptimizer:
                     msg = msg.model_copy(update={"content": pruned or msg.content})
             result.append(msg)
         if stripped_blocks:
-            logger.debug(
-                "CONTEXT_OPT: stripped {} thinking blocks from {} old turns",
+            logger.info(
+                "CONTEXT_OPT: tier1 stripped={} thinking_blocks old_turns={}",
                 stripped_blocks, len(assistant_idx) - keep_last_n,
             )
         return result
@@ -284,7 +284,7 @@ class ContextOptimizer:
             if entry is not None:
                 cls._summary_cache.move_to_end(key)
                 _, summary = entry
-                logger.debug("CONTEXT_OPT: prefix cache hit at k={}", k)
+                logger.info("CONTEXT_OPT: prefix_cache hit k={} msgs_replaced={}", k, k)
                 return cls._apply_summary(messages, k, summary)
         return messages
 

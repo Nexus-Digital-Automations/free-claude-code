@@ -1,6 +1,7 @@
 """Shared base class for OpenAI-compatible providers (NIM, OpenRouter, LM Studio)."""
 
 import json
+import time
 import uuid
 from abc import abstractmethod
 from collections.abc import AsyncIterator, Iterator
@@ -170,6 +171,7 @@ class OpenAICompatibleProvider(BaseProvider):
         tag = self._provider_name
         message_id = f"msg_{uuid.uuid4()}"
         sse = SSEBuilder(message_id, request.model, input_tokens)
+        stream_start = time.monotonic()
 
         body = self._build_request_body(request)
         req_tag = f" request_id={request_id}" if request_id else ""
@@ -382,5 +384,13 @@ class OpenAICompatibleProvider(BaseProvider):
                     provider_input,
                     provider_input - input_tokens,
                 )
+        logger.info(
+            "PROVIDER: done{} latency_ms={:.0f} output_tokens={} finish_reason={} error={}",
+            req_tag,
+            (time.monotonic() - stream_start) * 1000,
+            output_tokens,
+            finish_reason,
+            error_occurred,
+        )
         yield sse.message_delta(map_stop_reason(finish_reason), output_tokens)
         yield sse.message_stop()

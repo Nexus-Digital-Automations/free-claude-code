@@ -108,11 +108,16 @@ async def create_message(
         provider = get_provider_for_type(provider_type)
 
         request_id = f"req_{uuid.uuid4().hex[:12]}"
+        raw_tokens = get_token_count(
+            request_data.messages, request_data.system, request_data.tools
+        )
         logger.info(
-            "API_REQUEST: request_id={} model={} messages={}",
+            "REQUEST: start request_id={} model={} provider={} messages={} input_tokens={}",
             request_id,
             request_data.model,
+            provider_type,
             len(request_data.messages),
+            raw_tokens,
         )
         logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
 
@@ -127,6 +132,11 @@ async def create_message(
         input_tokens = get_token_count(
             request_data.messages, request_data.system, request_data.tools
         )
+        if input_tokens != raw_tokens:
+            logger.info(
+                "REQUEST: optimized request_id={} input_tokens_after={} saved={}",
+                request_id, input_tokens, raw_tokens - input_tokens,
+            )
         return StreamingResponse(
             provider.stream_response(
                 request_data,
