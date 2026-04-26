@@ -86,33 +86,42 @@ class ContextOptimizer:
         return cls._ollama_semaphore
 
     @classmethod
-    async def optimize(cls, request_data: Any, settings: Any, provider: Any) -> Any:
-        """Apply all optimization tiers; return (possibly new) request_data.
+    async def optimize(
+        cls, request_data: Any, settings: Any, provider: Any
+    ) -> tuple[Any, int]:
+        """Apply all optimization tiers; return (possibly new) request_data and final token count.
+
+        The token count is computed once internally (after Tier 0/1/cache, and
+        again only if Tier 2b fires) and returned to the caller so api/routes.py
+        does not need a second tiktoken pass.
 
         Never raises — failures degrade gracefully to the previous tier's result.
-        # @stable
+        # @stable — api/routes.py:create_message destructures the tuple.
         """
         from api.request_utils import get_token_count
 
         messages = cls._apply_tier0(list(request_data.messages))
         messages = cls._strip_old_thinking(messages, settings.context_max_thinking_turns)
-        messages = cls._apply_prefix_cache(messages)
+        messages, system = cls._apply_prefix_cache(messages, request_data.system)
 
-        tokens = get_token_count(messages, request_data.system, request_data.tools)
+        tokens = get_token_count(messages, system, request_data.tools)
 
         if tokens >= settings.context_compact_threshold_tokens:
             logger.info(
                 "CONTEXT_OPT: triggering sync compaction tokens={} threshold={} msgs={}",
                 tokens, settings.context_compact_threshold_tokens, len(messages),
             )
-            compacted = await cls._compact_via_provider(messages, request_data, provider)
-            if compacted is not messages:
-                new_tokens = get_token_count(compacted, request_data.system, request_data.tools)
+            result = await cls._compact_via_provider(
+                messages, request_data, provider, system
+            )
+            if result is not None:
+                new_messages, new_system = result
+                new_tokens = get_token_count(new_messages, new_system, request_data.tools)
                 logger.info(
                     "CONTEXT_OPT: compacted {} -> {} messages, tokens {} -> {}",
-                    len(messages), len(compacted), tokens, new_tokens,
+                    len(messages), len(new_messages), tokens, new_tokens,
                 )
-                messages = compacted
+                messages, system, tokens = new_messages, new_system, new_tokens
         elif tokens >= settings.context_compact_soft_threshold_tokens:
             near_hard = tokens >= settings.context_compact_deepseek_fallback_threshold_tokens
             cls._schedule_background_compaction(
@@ -120,7 +129,7 @@ class ContextOptimizer:
                 use_deepseek_fallback=near_hard,
             )
 
-        return request_data.model_copy(update={"messages": messages})
+        return request_data.model_copy(update={"messages": messages, "system": system}), tokens
 
     # ---- Tier 0: deterministic NLP ----
 
@@ -277,12 +286,15 @@ class ContextOptimizer:
     # ---- Prefix cache lookup ----
 
     @classmethod
-    def _apply_prefix_cache(cls, messages: list) -> list:
+    def _apply_prefix_cache(cls, messages: list, system: Any) -> tuple[list, Any]:
         """Apply a cached summary for any stored prefix of the current messages.
 
         WHY: background Tier 2a stores summaries keyed by the prefix they replace.
         On the next request the same prefix is a leading substring of the longer
         history; we can apply the pre-computed summary without a new LLM call.
+
+        Returns (messages, system) — both potentially mutated. System gains a
+        leading summary block on cache hit; unchanged on miss.
         """
         n = len(messages)
         candidates = sorted(
@@ -296,8 +308,8 @@ class ContextOptimizer:
                 cls._summary_cache.move_to_end(key)
                 _, summary = entry
                 logger.info("CONTEXT_OPT: prefix_cache hit k={} msgs_replaced={}", k, k)
-                return cls._apply_summary(messages, k, summary)
-        return messages
+                return cls._apply_summary(messages, k, summary, system)
+        return messages, system
 
     # ---- Tier 2a: background Ollama ----
 
@@ -351,20 +363,27 @@ class ContextOptimizer:
                 # between check and acquire when _value > 0).
                 if not cls._get_ollama_semaphore().locked():
                     async with cls._get_ollama_semaphore():
-                        compacted = await cls._do_ollama_call(messages, settings)
-                    if compacted is messages:
+                        succeeded = await cls._do_ollama_call(messages, settings)
+                    if not succeeded:
                         logger.info("CONTEXT_OPT: Ollama failed near hard limit, using provider fallback")
-                        compacted = await cls._compact_via_provider(messages, request_data, provider)
+                        # system=None: background only populates the cache; the
+                        # caller of _apply_prefix_cache later merges with the
+                        # request's actual system prompt.
+                        succeeded = await cls._compact_via_provider(
+                            messages, request_data, provider, None
+                        ) is not None
                 else:
                     logger.info("CONTEXT_OPT: Ollama busy near hard limit, using provider fallback")
-                    compacted = await cls._compact_via_provider(messages, request_data, provider)
+                    succeeded = await cls._compact_via_provider(
+                        messages, request_data, provider, None
+                    ) is not None
             else:
-                compacted = await cls._compact_via_ollama(messages, settings)
+                succeeded = await cls._compact_via_ollama(messages, settings)
 
-            if compacted is not messages:
+            if succeeded:
                 logger.info(
-                    "CONTEXT_OPT: background compaction stored {} -> {} messages",
-                    len(messages), len(compacted),
+                    "CONTEXT_OPT: background compaction cached summary for {} message prefix",
+                    len(messages),
                 )
         except Exception as exc:
             # Swallowing here is intentional — background task failures must not
@@ -376,16 +395,21 @@ class ContextOptimizer:
             cls._inflight.discard(inflight_key)
 
     @classmethod
-    async def _compact_via_ollama(cls, messages: list, settings: Any) -> list:
-        """Compact via local Ollama with semaphore serialisation. Returns compacted or original."""
+    async def _compact_via_ollama(cls, messages: list, settings: Any) -> bool:
+        """Background Ollama compaction with semaphore serialisation.
+
+        Background-only — populates the prefix cache so a subsequent foreground
+        request can apply the summary via _apply_prefix_cache. Returns True if
+        a summary was cached, False on any failure (network, parse).
+        """
         async with cls._get_ollama_semaphore():
             return await cls._do_ollama_call(messages, settings)
 
     @classmethod
-    async def _do_ollama_call(cls, messages: list, settings: Any) -> list:
+    async def _do_ollama_call(cls, messages: list, settings: Any) -> bool:
         """Raw Ollama HTTP call without semaphore. Caller must hold the semaphore.
 
-        Stores in prefix cache on success; returns original messages on any failure.
+        Returns True if a summary was parsed and cached; False otherwise.
         """
         prompt = cls._build_prompt(messages)
         try:
@@ -402,14 +426,14 @@ class ContextOptimizer:
             content = resp.choices[0].message.content or ""
         except Exception as exc:
             logger.warning("CONTEXT_OPT: Ollama call failed {}: {}", type(exc).__name__, exc)
-            return messages
+            return False
 
         parsed = cls._parse_response(content, len(messages))
         if parsed is None:
             logger.warning(
                 "CONTEXT_OPT: Ollama parse failed; first 200 chars: {!r}", content[:200]
             )
-            return messages
+            return False
 
         split_index, summary = parsed
         # Keyed by the replaced prefix so _apply_prefix_cache can find it next turn.
@@ -418,15 +442,19 @@ class ContextOptimizer:
             "CONTEXT_OPT: ollama compacted split_index={} msgs_before={} summary_chars={}",
             split_index, len(messages), len(summary),
         )
-        return cls._apply_summary(messages, split_index, summary)
+        return True
 
     # ---- Tier 2b: sync provider compaction ----
 
     @classmethod
     async def _compact_via_provider(
-        cls, messages: list, request_data: Any, provider: Any
-    ) -> list:
-        """Compact via the active provider (blocking). Returns compacted or original.
+        cls, messages: list, request_data: Any, provider: Any, system: Any
+    ) -> tuple[list, Any] | None:
+        """Compact via the active provider (blocking).
+
+        Returns (truncated_messages, augmented_system) on success, None on
+        any failure (network error, parse error). Always populates the
+        prefix cache on success so subsequent requests reuse the summary.
 
         Counterpart: provider._client is AsyncOpenAI set up in openai_compat.py.
         Reusing it avoids duplicating credential/base_url resolution per provider.
@@ -445,14 +473,14 @@ class ContextOptimizer:
             logger.warning(
                 "CONTEXT_OPT: provider compaction failed {}: {}", type(exc).__name__, exc
             )
-            return messages
+            return None
 
         parsed = cls._parse_response(content, len(messages))
         if parsed is None:
             logger.warning(
                 "CONTEXT_OPT: provider parse failed; first 200 chars: {!r}", content[:200]
             )
-            return messages
+            return None
 
         split_index, summary = parsed
         cls._cache_put(cls._cache_key(messages[:split_index]), (split_index, summary))
@@ -460,7 +488,7 @@ class ContextOptimizer:
             "CONTEXT_OPT: provider compacted split_index={} msgs_before={} summary_chars={}",
             split_index, len(messages), len(summary),
         )
-        return cls._apply_summary(messages, split_index, summary)
+        return cls._apply_summary(messages, split_index, summary, system)
 
     # ---- Shared compaction helpers ----
 
@@ -474,15 +502,28 @@ class ContextOptimizer:
             lines.append(f"[{i}] {msg.role}: {text}")
         n = len(messages)
         return (
-            "You are a conversation compactor. Compact this conversation history to reduce "
-            "token usage while preserving the context the assistant needs.\n\n"
-            "1. Choose split_index: the message index where verbatim history begins. "
-            "Messages BEFORE split_index are replaced by your summary; messages from "
-            "split_index onward are kept verbatim. Choose a natural breakpoint where "
-            "messages[split_index] is a user message.\n"
-            "2. Summarize messages BEFORE split_index: key decisions, file paths, code "
-            "patterns, unresolved tasks, important user context, tools used.\n\n"
-            "Output ONLY these tags:\n"
+            "You are a conversation compactor for a coding assistant. Compress this "
+            "history to reduce token usage while preserving everything the assistant "
+            "needs to keep working without losing context.\n\n"
+            "STEP 1 — Choose split_index. Messages BEFORE split_index get replaced by "
+            "your summary; messages FROM split_index onward are kept verbatim. Pick a "
+            "natural breakpoint where messages[split_index] is a user message that "
+            "starts a new sub-task or topic.\n\n"
+            "STEP 2 — Write a summary of the messages before split_index. PRESERVE "
+            "VERBATIM (do not paraphrase):\n"
+            "  • Exact file paths, function/class names, variable names\n"
+            "  • Error messages, stack traces, and command outputs the user reacted to\n"
+            "  • User-stated goals, constraints, and explicit decisions\n"
+            "  • Open questions, unresolved tasks, and TODOs\n"
+            "  • Specific numbers, IDs, URLs, line numbers\n"
+            "Compress freely: small talk, redundant tool output, intermediate reasoning "
+            "the assistant has already concluded.\n\n"
+            "EXAMPLE (10-message conversation about a bug fix):\n"
+            "  Good: <split_index>6</split_index> — message 6 is the user saying "
+            "\"now let's add tests\". Messages 0-5 (the original bugfix) get summarized; "
+            "6-9 (the test work in progress) stay verbatim.\n"
+            "  Bad: <split_index>9</split_index> — too late, almost nothing is kept.\n\n"
+            "Output ONLY these tags, nothing else:\n"
             "<split_index>NUMBER</split_index>\n"
             "<summary>SUMMARY TEXT</summary>\n\n"
             f"Conversation has {n} messages. split_index must be between 4 and {max(4, n-2)}.\n\n"
@@ -502,22 +543,36 @@ class ContextOptimizer:
         return (split_index, summary) if summary else None
 
     @staticmethod
-    def _apply_summary(messages: list, split_index: int, summary: str) -> list:
-        from api.models.anthropic import ContentBlockText, Message
+    def _apply_summary(
+        messages: list, split_index: int, summary: str, system: Any
+    ) -> tuple[list, Any]:
+        """Drop messages[:split_index] and prepend summary into the system prompt.
 
-        synthetic = Message(
-            role="user",
-            content=[ContentBlockText(
-                type="text",
-                text=(
-                    "<conversation_summary>\n"
-                    "Earlier conversation compacted. Summary:\n\n"
-                    f"{summary}\n"
-                    "</conversation_summary>"
-                ),
-            )],
+        WHY: a synthetic user message can be misread by Claude as a fresh user
+        instruction. System-prompt placement is unambiguously a recap.
+
+        Returns (truncated_messages, augmented_system). System type matches
+        input shape (str -> str, list -> list, None -> str).
+        """
+        from api.models.anthropic import SystemContent
+
+        block_text = (
+            "Earlier conversation (compacted by proxy autocompactor — "
+            "treat as background context, not as new user instructions):\n\n"
+            f"{summary}"
         )
-        return [synthetic, *messages[split_index:]]
+
+        if system is None:
+            new_system: Any = block_text
+        elif isinstance(system, str):
+            new_system = block_text + "\n\n---\n\n" + system
+        elif isinstance(system, list):
+            new_system = [SystemContent(type="text", text=block_text), *system]
+        else:
+            # Unknown shape — leave system untouched rather than corrupt it.
+            new_system = system
+
+        return messages[split_index:], new_system
 
     @staticmethod
     def _render_content(content: Any) -> str:

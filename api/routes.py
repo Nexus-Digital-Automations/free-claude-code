@@ -123,15 +123,15 @@ async def create_message(
 
         # Tier 1 strips stale thinking blocks; Tier 2 summarizes older turns
         # via the same provider when the request crosses the token threshold.
-        # Counterpart: providers/common/context_optimizer.py
+        # Counterpart: providers/common/context_optimizer.py — returns the
+        # final token count so we don't redo a full tiktoken pass here.
         if settings.context_optimize:
-            request_data = await ContextOptimizer.optimize(
+            request_data, input_tokens = await ContextOptimizer.optimize(
                 request_data, settings, provider
             )
+        else:
+            input_tokens = raw_tokens
 
-        input_tokens = get_token_count(
-            request_data.messages, request_data.system, request_data.tools
-        )
         if input_tokens != raw_tokens:
             logger.info(
                 "REQUEST: optimized request_id={} input_tokens_after={} saved={}",
