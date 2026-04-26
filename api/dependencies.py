@@ -97,7 +97,7 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         return DeepSeekProvider(config)
     if provider_type == "lmstudio":
         config = ProviderConfig(
-            api_key="lm-studio",
+            api_key="lm-studio",  # pragma: allowlist secret — LM Studio ignores api_key
             base_url=settings.lm_studio_base_url,
             rate_limit=settings.provider_rate_limit,
             rate_window=settings.provider_rate_window,
@@ -111,7 +111,7 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         return LMStudioProvider(config)
     if provider_type == "llamacpp":
         config = ProviderConfig(
-            api_key="llamacpp",
+            api_key="llamacpp",  # pragma: allowlist secret — llama.cpp ignores api_key
             base_url=settings.llamacpp_base_url,
             rate_limit=settings.provider_rate_limit,
             rate_window=settings.provider_rate_window,

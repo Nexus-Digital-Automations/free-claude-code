@@ -7,6 +7,12 @@ __pycache__
 .venv
 agent_workspace
 .env
+.env.*
+*.key
+*.pem
+*.p12
+*credentials*
+*secrets*
 server.log
 .coverage
 llama_cache

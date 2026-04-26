@@ -325,7 +325,7 @@ class ContextOptimizer:
         prompt = cls._build_prompt(messages)
         try:
             # api_key="ollama" is required by the SDK but ignored by Ollama's server.
-            client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)
+            client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret — Ollama ignores api_key
             resp = await client.chat.completions.create(
                 model=settings.ollama_model,
                 messages=[{"role": "user", "content": prompt}],

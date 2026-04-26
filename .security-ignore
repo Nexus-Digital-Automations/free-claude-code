@@ -1,0 +1,18 @@
+# False-positive suppressions for the security scan.
+# Production-code false positives are suppressed with inline
+# `# pragma: allowlist secret` comments rather than file-level entries here,
+# so reviewers can see exactly which lines are exempted and why.
+
+# Test fixtures use fake/placeholder API keys and passwords by design.
+# Real credentials are never present in this directory.
+tests/**
+
+# README contains illustrative example values only, not deployable credentials.
+README.md
+
+# .env.example is documentation for required variables; values are placeholders.
+.env.example
+
+# Runtime log files may contain session metadata; they are gitignored and
+# never committed. No deployable secrets are stored here.
+logs/**
