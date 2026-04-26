@@ -2,20 +2,20 @@
 # Owns: reporting current cc mode and whether the proxy server is reachable.
 # Does NOT own: changing mode (cc-set-mode) or starting the server (start.sh).
 # Called by: the /cc-status slash command and the user from the shell.
-# Calls:     curl (health probe).
+# Calls:     curl (health probe), jq (reads settings.json for mode).
 set -euo pipefail
 
-readonly MODE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/free-claude-code/mode"
+readonly SETTINGS="$HOME/.claude/settings.json"
 readonly PROXY_HOST="${HOST:-127.0.0.1}"
 readonly PROXY_PORT="${PORT:-8082}"
 readonly PROXY_BASE_URL="http://$PROXY_HOST:$PROXY_PORT"
 
 mode="direct"
-if [[ -f "$MODE_FILE" ]]; then
-    raw="$(tr -d '[:space:]' < "$MODE_FILE")"
-    case "$raw" in
-        proxy|direct) mode="$raw" ;;
-    esac
+if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
+    url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS" 2>/dev/null)"
+    if [[ "$url" == "$PROXY_BASE_URL" ]]; then
+        mode="proxy"
+    fi
 fi
 
 if curl -fsS --max-time 2 "$PROXY_BASE_URL/health" >/dev/null 2>&1; then

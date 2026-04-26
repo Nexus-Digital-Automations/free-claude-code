@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-# Owns: one-time wiring for the cc switcher — Keychain entries, mode file,
+# Owns: one-time wiring for the cc switcher — Keychain entries,
 #       and symlinks into ~/.local/bin and ~/.claude/commands.
-# Does NOT own: launching Claude Code (cc) or changing modes (cc-set-mode).
+# Does NOT own: launching Claude Code (cc) or changing modes (cc-set-api-mode.sh).
 # Called by: the user, once per machine.
 # Calls:     `security` (Keychain), ln, mkdir, read.
 #
 # Re-running is safe: `security add-generic-password -U` updates in place,
-# `ln -sf` replaces existing symlinks, and the mode file is only initialized
-# when missing (so a re-run does not clobber the user's current choice).
+# and `ln -sf` replaces existing symlinks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 readonly REPO_ROOT
-readonly MODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/free-claude-code"
-readonly MODE_FILE="$MODE_DIR/mode"
 readonly BIN_DIR="$HOME/.local/bin"
 readonly COMMANDS_DIR="$HOME/.claude/commands"
 readonly KEYCHAIN_DIRECT="free-claude-code/anthropic-direct"
@@ -48,16 +45,6 @@ store_in_keychain() {
     security add-generic-password -a "$USER" -s "$service" -w "$secret" -U
 }
 
-initialize_mode_file() {
-    mkdir -p "$MODE_DIR"
-    if [[ ! -f "$MODE_FILE" ]]; then
-        printf 'direct\n' > "$MODE_FILE"
-        echo "setup: initialized $MODE_FILE -> direct"
-    else
-        echo "setup: kept existing $MODE_FILE ($(tr -d '[:space:]' < "$MODE_FILE"))"
-    fi
-}
-
 link() {
     local src="$1" dst="$2"
     mkdir -p "$(dirname "$dst")"
@@ -67,7 +54,6 @@ link() {
 
 install_symlinks() {
     link "$REPO_ROOT/scripts/cc"          "$BIN_DIR/cc"
-    link "$REPO_ROOT/scripts/cc-set-mode" "$BIN_DIR/cc-set-mode"
     link "$REPO_ROOT/scripts/cc-status"   "$BIN_DIR/cc-status"
 }
 
@@ -92,10 +78,10 @@ EOF
 }
 
 install_slash_commands() {
-    local set_mode="$REPO_ROOT/scripts/cc-set-mode"
+    local set_api_mode="$REPO_ROOT/scripts/cc-set-api-mode.sh"
     local status="$REPO_ROOT/scripts/cc-status"
-    write_slash_command "use-proxy"  "Switch the next \`cc\` launch to proxy mode (free-claude-code server)" "\"$set_mode\" proxy"
-    write_slash_command "use-direct" "Switch the next \`cc\` launch to direct mode (real Anthropic API)"      "\"$set_mode\" direct"
+    write_slash_command "use-proxy"  "Switch to proxy mode — sets ANTHROPIC_BASE_URL in settings.json" "bash \"$set_api_mode\" proxy"
+    write_slash_command "use-direct" "Switch to direct mode — removes ANTHROPIC_BASE_URL from settings.json" "bash \"$set_api_mode\" direct"
     write_slash_command "cc-status"  "Show current cc mode, base URL, and proxy server health"                  "\"$status\""
 }
 
@@ -110,7 +96,7 @@ main() {
     require_macos
 
     chmod +x "$REPO_ROOT/scripts/cc" \
-             "$REPO_ROOT/scripts/cc-set-mode" \
+             "$REPO_ROOT/scripts/cc-set-api-mode.sh" \
              "$REPO_ROOT/scripts/cc-status"
 
     echo "Storing your real Anthropic API key (used in direct mode)."
@@ -124,7 +110,6 @@ main() {
     proxy_token="$(prompt_secret "ANTHROPIC_API_KEY (proxy mode)")"
     store_in_keychain "$KEYCHAIN_PROXY" "$proxy_token"
 
-    initialize_mode_file
     install_symlinks
     install_slash_commands
     warn_if_path_missing
