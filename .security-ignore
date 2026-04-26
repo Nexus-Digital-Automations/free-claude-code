@@ -16,3 +16,17 @@ README.md
 # Runtime log files may contain session metadata; they are gitignored and
 # never committed. No deployable secrets are stored here.
 logs/**
+
+# Provider dependency file. Lines 100 and 114 set placeholder api_key values
+# ("lm-studio", "llamacpp") required by the OpenAI SDK but ignored by these
+# local servers. Both lines carry inline `# pragma: allowlist secret` comments.
+# pattern-scanner does not honor inline suppression, so this file-level entry
+# is required for that tool.
+api/dependencies.py
+
+# Background Ollama compaction client. Line 327 sets api_key="ollama" as a
+# placeholder required by the OpenAI SDK; Ollama's server ignores it.
+# Inline `# pragma: allowlist secret` comment is present. detect-secrets does
+# not pick up the pragma here (no baseline file in repo), so this entry covers
+# that tool.
+providers/common/context_optimizer.py
