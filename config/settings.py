@@ -176,6 +176,12 @@ class Settings(BaseSettings):
     context_compact_soft_threshold_tokens: int = Field(
         default=80000, validation_alias="CONTEXT_COMPACT_SOFT_THRESHOLD_TOKENS"
     )
+    # When tokens exceed this mid-point, Ollama is tried non-blocking; if Ollama is
+    # unavailable or busy the active provider is used as a fallback so we don't arrive
+    # at the hard 200K limit without having compacted.
+    context_compact_deepseek_fallback_threshold_tokens: int = Field(
+        default=150000, validation_alias="CONTEXT_COMPACT_DEEPSEEK_FALLBACK_THRESHOLD_TOKENS"
+    )
     context_compact_threshold_tokens: int = Field(
         default=200000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
     )

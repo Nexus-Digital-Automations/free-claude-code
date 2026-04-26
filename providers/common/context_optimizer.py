@@ -114,7 +114,11 @@ class ContextOptimizer:
                 )
                 messages = compacted
         elif tokens >= settings.context_compact_soft_threshold_tokens:
-            cls._schedule_background_compaction(messages, settings)
+            near_hard = tokens >= settings.context_compact_deepseek_fallback_threshold_tokens
+            cls._schedule_background_compaction(
+                messages, settings, provider, request_data,
+                use_deepseek_fallback=near_hard,
+            )
 
         return request_data.model_copy(update={"messages": messages})
 
@@ -291,29 +295,65 @@ class ContextOptimizer:
     # ---- Tier 2a: background Ollama ----
 
     @classmethod
-    def _schedule_background_compaction(cls, messages: list, settings: Any) -> None:
-        """Fire background Ollama compaction unless one is already in-flight."""
+    def _schedule_background_compaction(
+        cls,
+        messages: list,
+        settings: Any,
+        provider: Any,
+        request_data: Any,
+        *,
+        use_deepseek_fallback: bool = False,
+    ) -> None:
+        """Fire background compaction unless one is already in-flight for this prefix."""
         inflight_key = cls._cache_key(messages)
         if inflight_key in cls._inflight:
             logger.debug("CONTEXT_OPT: background compaction already in-flight, skipping")
             return
         cls._inflight.add(inflight_key)
         logger.info(
-            "CONTEXT_OPT: scheduling background Ollama compaction msgs={}",
-            len(messages),
+            "CONTEXT_OPT: scheduling background compaction msgs={} deepseek_fallback={}",
+            len(messages), use_deepseek_fallback,
         )
         task = asyncio.create_task(
-            cls._run_background_compaction(messages, settings, inflight_key)
+            cls._run_background_compaction(
+                messages, settings, inflight_key,
+                provider=provider, request_data=request_data,
+                use_deepseek_fallback=use_deepseek_fallback,
+            )
         )
         cls._background_tasks.add(task)
         task.add_done_callback(cls._background_tasks.discard)
 
     @classmethod
     async def _run_background_compaction(
-        cls, messages: list, settings: Any, inflight_key: str
+        cls,
+        messages: list,
+        settings: Any,
+        inflight_key: str,
+        *,
+        provider: Any,
+        request_data: Any,
+        use_deepseek_fallback: bool,
     ) -> None:
         try:
-            compacted = await cls._compact_via_ollama(messages, settings)
+            if use_deepseek_fallback:
+                # Near the hard token limit — try Ollama only if it's immediately available.
+                # If it's busy or down, fall back to the provider rather than queue and risk
+                # the conversation reaching 200K without any compaction having happened.
+                # asyncio is single-threaded so locked() + acquire() is race-free (no await
+                # between check and acquire when _value > 0).
+                if not cls._get_ollama_semaphore().locked():
+                    async with cls._get_ollama_semaphore():
+                        compacted = await cls._do_ollama_call(messages, settings)
+                    if compacted is messages:
+                        logger.info("CONTEXT_OPT: Ollama failed near hard limit, using provider fallback")
+                        compacted = await cls._compact_via_provider(messages, request_data, provider)
+                else:
+                    logger.info("CONTEXT_OPT: Ollama busy near hard limit, using provider fallback")
+                    compacted = await cls._compact_via_provider(messages, request_data, provider)
+            else:
+                compacted = await cls._compact_via_ollama(messages, settings)
+
             if compacted is not messages:
                 logger.info(
                     "CONTEXT_OPT: background compaction stored {} -> {} messages",
@@ -330,20 +370,28 @@ class ContextOptimizer:
 
     @classmethod
     async def _compact_via_ollama(cls, messages: list, settings: Any) -> list:
-        """Compact via local Ollama. Stores in cache; returns compacted or original."""
+        """Compact via local Ollama with semaphore serialisation. Returns compacted or original."""
+        async with cls._get_ollama_semaphore():
+            return await cls._do_ollama_call(messages, settings)
+
+    @classmethod
+    async def _do_ollama_call(cls, messages: list, settings: Any) -> list:
+        """Raw Ollama HTTP call without semaphore. Caller must hold the semaphore.
+
+        Stores in prefix cache on success; returns original messages on any failure.
+        """
         prompt = cls._build_prompt(messages)
         try:
-            async with cls._get_ollama_semaphore():
-                # api_key="ollama" is required by the SDK but ignored by Ollama's server.
-                client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret — Ollama ignores api_key
-                resp = await client.chat.completions.create(
-                    model=settings.ollama_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=_COMPACTION_MAX_TOKENS,
-                    temperature=_COMPACTION_TEMPERATURE,
-                    stream=False,
-                )
-                await client.close()
+            # api_key="ollama" is required by the SDK but ignored by Ollama's server.
+            client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret — Ollama ignores api_key
+            resp = await client.chat.completions.create(
+                model=settings.ollama_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=_COMPACTION_MAX_TOKENS,
+                temperature=_COMPACTION_TEMPERATURE,
+                stream=False,
+            )
+            await client.close()
             content = resp.choices[0].message.content or ""
         except Exception as exc:
             logger.warning("CONTEXT_OPT: Ollama call failed {}: {}", type(exc).__name__, exc)
