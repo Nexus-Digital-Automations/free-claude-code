@@ -400,8 +400,14 @@ class ContextOptimizer:
 
         Background-only — populates the prefix cache so a subsequent foreground
         request can apply the summary via _apply_prefix_cache. Returns True if
-        a summary was cached, False on any failure (network, parse).
+        a summary was cached, False on any failure (network, parse, or
+        supervisor-reported unavailability).
         """
+        # Counterpart: providers/common/ollama_supervisor.py owns this gate.
+        from providers.common.ollama_supervisor import OllamaSupervisor
+
+        if not await OllamaSupervisor.ensure_ready(settings):
+            return False
         async with cls._get_ollama_semaphore():
             return await cls._do_ollama_call(messages, settings)
 
@@ -410,7 +416,14 @@ class ContextOptimizer:
         """Raw Ollama HTTP call without semaphore. Caller must hold the semaphore.
 
         Returns True if a summary was parsed and cached; False otherwise.
+        Callers from outside _compact_via_ollama must verify supervisor
+        readiness themselves (the near-hard fallback path in
+        _run_background_compaction does this).
         """
+        from providers.common.ollama_supervisor import OllamaSupervisor
+
+        if not await OllamaSupervisor.ensure_ready(settings):
+            return False
         prompt = cls._build_prompt(messages)
         try:
             # api_key="ollama" is required by the SDK but ignored by Ollama's server.

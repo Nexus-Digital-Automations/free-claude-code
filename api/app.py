@@ -57,6 +57,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Claude Code Proxy...")
     _warn_if_process_auth_token(settings)
 
+    # Fire-and-forget Ollama warm-up. Counterpart: providers/common/ollama_supervisor.py.
+    # Background scheduling means a slow daemon spawn (10-30s) does not block
+    # the proxy from accepting requests; the optimizer re-checks readiness
+    # before each Tier 2a compaction anyway. getattr defaulting matches tests
+    # that pass a SimpleNamespace lacking context_optimize.
+    if getattr(settings, "context_optimize", False):
+        from providers.common.ollama_supervisor import OllamaSupervisor
+
+        asyncio.create_task(OllamaSupervisor.ensure_ready(settings))
+
     # Initialize messaging platform if configured
     messaging_platform = None
     message_handler = None

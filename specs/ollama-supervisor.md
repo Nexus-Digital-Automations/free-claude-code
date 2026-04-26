@@ -50,28 +50,29 @@ optimizer fall back to the provider compaction path.
 
 ## Acceptance Criteria
 
-- [ ] New module `providers/common/ollama_supervisor.py` defines
+- [x] New module `providers/common/ollama_supervisor.py` defines
       `OllamaSupervisor.ensure_ready(settings) -> bool`.
-- [ ] `api/app.py:lifespan` schedules `ensure_ready` at startup
+- [x] `api/app.py:lifespan` schedules `ensure_ready` at startup
       (fire-and-forget background task — does not block server boot).
-- [ ] `_compact_via_ollama` and `_do_ollama_call` short-circuit and return
+- [x] `_compact_via_ollama` and `_do_ollama_call` short-circuit and return
       False if `ensure_ready` returns False (without an HTTP attempt).
-- [ ] Health-check uses `GET {ollama_base_url}/api/tags`; warm-up uses
+- [x] Health-check uses `GET {ollama_base_url}/api/tags`; warm-up uses
       `POST /api/generate` with `prompt: ""`, `stream: false`,
       `keep_alive: "30m"`.
-- [ ] Repeated `ensure_ready` calls within 30 seconds reuse the cached
-      "ready" result (verifiable by counting HTTP calls in a test).
-- [ ] After a failure, `ensure_ready` returns False without further work
-      for 60 seconds (cooldown verifiable by mocking time and counting
-      subprocess attempts).
-- [ ] Loud logging: `OLLAMA: health_check ok|failed`,
+- [x] Repeated `ensure_ready` calls within 30 seconds reuse the cached
+      "ready" result. Verified by `test_ensure_ready_caches_success_within_ttl`
+      (1 GET + 1 POST across two ensure_ready calls).
+- [x] After a failure, `ensure_ready` returns False without further work
+      for 60 seconds. Verified by
+      `test_ensure_ready_returns_false_during_cooldown_after_failure`.
+- [x] Loud logging: `OLLAMA: health_check ok|failed`,
       `OLLAMA: spawning daemon`, `OLLAMA: daemon ready elapsed_ms=N`,
       `OLLAMA: warming model=X`, `OLLAMA: ready elapsed_ms=N`, and a
       WARNING line on each failure mode.
-- [ ] `tests/providers/test_ollama_supervisor.py`: ≥4 tests covering
+- [x] `tests/providers/test_ollama_supervisor.py`: 6 tests covering
       cache hit, cooldown after failure, missing-binary path,
-      concurrent-coalescing.
-- [ ] Full lint + test suite green.
+      concurrent-coalescing, 404 model-not-pulled hint, URL parsing.
+- [x] Full lint + test suite green: 930 passed, ruff clean.
 
 ## Technical Decisions
 
@@ -101,9 +102,9 @@ optimizer fall back to the provider compaction path.
 
 ## Progress
 
-- [ ] R1 — boot-time start
-- [ ] R2 — per-compaction recheck
-- [ ] R3 — failure cooldown
-- [ ] R4 — detached subprocess
-- [ ] R5 — concurrency lock
-- [ ] R6 — logging + soft fail
+- [x] R1 — boot-time start
+- [x] R2 — per-compaction recheck
+- [x] R3 — failure cooldown
+- [x] R4 — detached subprocess
+- [x] R5 — concurrency lock
+- [x] R6 — logging + soft fail
