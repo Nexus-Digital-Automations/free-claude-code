@@ -59,7 +59,7 @@ def test_api_root_strips_openai_v1_suffix():
 async def test_ensure_ready_caches_success_within_ttl(settings):
     cm, client = _async_client_returning(_ok_response(200), _ok_response(200))
     with patch(
-        "providers.common.ollama_supervisor.httpx.AsyncClient", return_value=cm
+        "context_optimizer.ollama_supervisor.httpx.AsyncClient", return_value=cm
     ):
         first = await OllamaSupervisor.ensure_ready(settings)
         second = await OllamaSupervisor.ensure_ready(settings)
@@ -84,7 +84,7 @@ async def test_ensure_ready_returns_false_during_cooldown_after_failure(
     cm, client = _async_client_returning(fail_resp, fail_resp)
 
     monkeypatch.setattr(
-        "providers.common.ollama_supervisor.OllamaSupervisor._spawn_daemon",
+        "context_optimizer.ollama_supervisor.OllamaSupervisor._spawn_daemon",
         lambda: True,
     )
     # Make _wait_for_health give up immediately so the test stays fast.
@@ -96,7 +96,7 @@ async def test_ensure_ready_returns_false_during_cooldown_after_failure(
     )
 
     with patch(
-        "providers.common.ollama_supervisor.httpx.AsyncClient", return_value=cm
+        "context_optimizer.ollama_supervisor.httpx.AsyncClient", return_value=cm
     ):
         first = await OllamaSupervisor.ensure_ready(settings)
         # Inside the cooldown window — must NOT touch httpx again.
@@ -123,10 +123,10 @@ async def test_ensure_ready_returns_false_when_ollama_binary_missing(
         raise FileNotFoundError("ollama")
 
     monkeypatch.setattr(
-        "providers.common.ollama_supervisor.subprocess.Popen", _missing_binary
+        "context_optimizer.ollama_supervisor.subprocess.Popen", _missing_binary
     )
     with patch(
-        "providers.common.ollama_supervisor.httpx.AsyncClient", return_value=cm
+        "context_optimizer.ollama_supervisor.httpx.AsyncClient", return_value=cm
     ):
         result = await OllamaSupervisor.ensure_ready(settings)
 
@@ -140,7 +140,7 @@ async def test_concurrent_ensure_ready_calls_coalesce_on_single_check(settings):
     # lock and then sees the cache populated by the first.
     cm, client = _async_client_returning(_ok_response(200), _ok_response(200))
     with patch(
-        "providers.common.ollama_supervisor.httpx.AsyncClient", return_value=cm
+        "context_optimizer.ollama_supervisor.httpx.AsyncClient", return_value=cm
     ):
         import asyncio
 
@@ -164,7 +164,7 @@ async def test_warm_model_404_marks_failed_with_pull_hint(monkeypatch, settings,
     cm, _ = _async_client_returning(_ok_response(200), not_found)
 
     with patch(
-        "providers.common.ollama_supervisor.httpx.AsyncClient", return_value=cm
+        "context_optimizer.ollama_supervisor.httpx.AsyncClient", return_value=cm
     ):
         result = await OllamaSupervisor.ensure_ready(settings)
 

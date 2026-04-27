@@ -22,6 +22,7 @@ dependencies = [
     "openai>=2.16.0",
     "loguru>=0.7.0",
     "aiohttp>=3.13.4",
+    "context-optimizer",
 ]
 
 [project.scripts]
@@ -46,6 +47,7 @@ packages = ["api", "cli", "config", "messaging", "providers"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
+context-optimizer = { path = "./packages/context-optimizer", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
