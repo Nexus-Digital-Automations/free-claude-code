@@ -7,4 +7,7 @@ for api/app.py and any other proxy callers.
 Counterpart: packages/context-optimizer/src/context_optimizer/ollama_supervisor.py
 """
 
-from context_optimizer.ollama_supervisor import OllamaSupervisor, _api_root  # noqa: F401
+from context_optimizer.ollama_supervisor import (  # noqa: F401
+    OllamaSupervisor,
+    _api_root,
+)
