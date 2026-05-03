@@ -176,14 +176,14 @@ class OpenAICompatibleProvider(BaseProvider):
         body = self._build_request_body(request)
         req_tag = f" request_id={request_id}" if request_id else ""
         logger.info(
-            "{}_STREAM:{} model={} msgs={} tools={}",
-            tag,
+            "PROVIDER: stream_start{} provider={} model={} msgs={} tools={}",
             req_tag,
+            tag,
             body.get("model"),
             len(body.get("messages", [])),
             len(body.get("tools", [])),
         )
-        logger.debug("{}_REQUEST_BODY:{} {}", tag, req_tag, body)
+        logger.debug("PROVIDER: request_body{} provider={} body={}", req_tag, tag, body)
 
         yield sse.message_start()
 
@@ -213,7 +213,10 @@ class OpenAICompatibleProvider(BaseProvider):
 
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
-                        logger.debug("{} finish_reason: {}", tag, finish_reason)
+                        logger.info(
+                            "PROVIDER: finish_reason{} provider={} reason={}",
+                            req_tag, tag, finish_reason,
+                        )
 
                     # Handle reasoning_content (OpenAI extended format)
                     reasoning = getattr(delta, "reasoning_content", None)

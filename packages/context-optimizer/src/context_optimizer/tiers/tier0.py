@@ -16,15 +16,22 @@ import hashlib
 from .._core import strip_ansi
 
 _DEDUPE_PLACEHOLDER = "[identical to earlier tool result -- omitted]"
-_HEAD = 50
-_TAIL = 50
 
 
-def apply(messages: list[dict], max_lines: int = 200) -> list[dict]:
-    """Return NLP-cleaned copy of messages. Returns input unchanged if nothing changed."""
+def apply(
+    messages: list[dict],
+    max_lines: int = 200,
+    head_lines: int = 50,
+    tail_lines: int = 50,
+) -> list[dict]:
+    """Return NLP-cleaned copy of messages. Returns input unchanged if nothing changed.
+
+    head_lines/tail_lines bound the head+tail kept when truncating tool results
+    longer than max_lines. Sourced from ContextOptimizerSettings via optimizer.py.
+    """
     msgs = _strip_ansi(messages)
     msgs = _dedupe_tool_results(msgs)
-    msgs = _truncate_long_outputs(msgs, max_lines)
+    msgs = _truncate_long_outputs(msgs, max_lines, head_lines, tail_lines)
     return msgs
 
 
@@ -95,7 +102,9 @@ def _dedupe_tool_results(messages: list[dict]) -> list[dict]:
     return result if changed else messages
 
 
-def _truncate_long_outputs(messages: list[dict], max_lines: int) -> list[dict]:
+def _truncate_long_outputs(
+    messages: list[dict], max_lines: int, head_lines: int, tail_lines: int,
+) -> list[dict]:
     result = []
     changed = False
     for msg in messages:
@@ -109,11 +118,11 @@ def _truncate_long_outputs(messages: list[dict], max_lines: int) -> list[dict]:
                     if isinstance(raw, str):
                         lines = raw.split("\n")
                         if len(lines) > max_lines:
-                            omitted = len(lines) - _HEAD - _TAIL
+                            omitted = len(lines) - head_lines - tail_lines
                             truncated = (
-                                "\n".join(lines[:_HEAD])
+                                "\n".join(lines[:head_lines])
                                 + f"\n... [{omitted} lines omitted] ...\n"
-                                + "\n".join(lines[-_TAIL:])
+                                + "\n".join(lines[-tail_lines:])
                             )
                             block = {**block, "content": truncated}
                             msg_changed = True

@@ -1,6 +1,6 @@
 ---
 title: DeepSeek V4 Support
-status: active
+status: completed
 created: 2026-04-24
 ---
 
@@ -17,11 +17,11 @@ Update the proxy to support DeepSeek V4 models (deepseek-v4-pro, deepseek-v4-fla
 
 ## Acceptance Criteria
 
-- [ ] README DeepSeek direct API example shows `deepseek-v4-pro` for Opus and `deepseek-v4-flash` for Sonnet/Haiku/fallback — no old model names remain
-- [ ] README DeepSeek model list section lists `deepseek-v4-pro` and `deepseek-v4-flash` with a deprecation note for old names
-- [ ] `SUPPORTED_CLAUDE_MODELS` includes `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`
-- [ ] `request.py` thinking check uses `not in _BUILTIN_REASONER_MODELS` frozenset instead of `!= "deepseek-reasoner"`
-- [ ] `ruff` passes with no errors
+- [x] README DeepSeek direct API example shows `deepseek-v4-pro` for Opus and `deepseek-v4-flash` for Sonnet/Haiku/fallback — no old model names remain (README:108-113)
+- [x] README DeepSeek model list section lists `deepseek-v4-pro` and `deepseek-v4-flash` with a deprecation note for old names (README:382-385)
+- [x] `SUPPORTED_CLAUDE_MODELS` includes `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` (api/routes.py:34-44)
+- [x] `request.py` thinking check uses `not in _BUILTIN_REASONER_MODELS` frozenset instead of `!= "deepseek-reasoner"` (providers/deepseek/request.py:11,31)
+- [x] `ruff` passes with no errors
 
 ## Technical Decisions
 

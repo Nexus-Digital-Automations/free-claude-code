@@ -190,6 +190,40 @@ class Settings(BaseSettings):
         default="http://localhost:11434/v1", validation_alias="OLLAMA_BASE_URL"
     )
     ollama_model: str = Field(default="qwen2.5:7b", validation_alias="OLLAMA_MODEL")
+    # Bounded await for the supervisor warm-up at app startup. Long enough that
+    # `ollama serve` boot + small-model warm completes on a warm box; short
+    # enough that we don't block proxy startup if Ollama is missing.
+    # Counterpart: api/app.py:lifespan, ollama_supervisor.OllamaSupervisor.
+    ollama_warmup_max_wait_s: float = Field(
+        default=8.0, validation_alias="OLLAMA_WARMUP_MAX_WAIT_S"
+    )
+
+    # Context-optimizer package config that the adapter forwards verbatim.
+    # The package exposes these as ContextOptimizerSettings dataclass fields.
+    context_prefix_cache_max_entries: int = Field(
+        default=100, validation_alias="CONTEXT_PREFIX_CACHE_MAX_ENTRIES"
+    )
+    context_tier0_max_lines: int = Field(
+        default=200, validation_alias="CONTEXT_TIER0_MAX_LINES"
+    )
+    context_tier0_head_lines: int = Field(
+        default=50, validation_alias="CONTEXT_TIER0_HEAD_LINES"
+    )
+    context_tier0_tail_lines: int = Field(
+        default=50, validation_alias="CONTEXT_TIER0_TAIL_LINES"
+    )
+    context_render_preview_chars: int = Field(
+        default=2000, validation_alias="CONTEXT_RENDER_PREVIEW_CHARS"
+    )
+    context_compaction_max_tokens: int = Field(
+        default=4000, validation_alias="CONTEXT_COMPACTION_MAX_TOKENS"
+    )
+    context_compaction_temperature: float = Field(
+        default=0.3, validation_alias="CONTEXT_COMPACTION_TEMPERATURE"
+    )
+    context_compaction_keep_alive: str = Field(
+        default="30m", validation_alias="CONTEXT_COMPACTION_KEEP_ALIVE"
+    )
 
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
@@ -225,6 +259,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8082
     log_file: str = "logs/server.log"
+    # Opt-in Prometheus exposition at /metrics. Off by default to keep the
+    # endpoint surface minimal in solo deployments. Counterpart: api/metrics.py.
+    metrics_enabled: bool = Field(default=False, validation_alias="METRICS_ENABLED")
     # Optional server API key to protect endpoints (Anthropic-style)
     # Set via env `ANTHROPIC_AUTH_TOKEN`. When empty, no auth is required.
     anthropic_auth_token: str = Field(

@@ -1,5 +1,6 @@
 """FastAPI route handlers."""
 
+import time
 import traceback
 import uuid
 
@@ -13,6 +14,13 @@ from providers.common.context_optimizer import ContextOptimizer
 from providers.exceptions import InvalidRequestError, ProviderError
 
 from .dependencies import get_provider_for_type, get_settings, require_api_key
+from .metrics import (
+    COMPACTION_INVOCATION_TOTAL,
+    COMPACTION_TOKENS_SAVED,
+    REQUEST_DURATION_SECONDS,
+    REQUEST_TOTAL,
+    render_exposition,
+)
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse, TokenCountResponse
 from .optimization_handlers import try_optimizations
@@ -80,6 +88,39 @@ def _probe_response(allow: str) -> Response:
     return Response(status_code=204, headers={"Allow": allow})
 
 
+async def _instrumented_stream(
+    upstream, request_id: str, started: float, provider: str, model: str,
+):
+    """Wrap a provider stream so REQUEST: completed fires on stream end.
+
+    Logs once on success (when the upstream generator exhausts) and once on
+    exception. Also bumps the proxy_request_total/duration metrics with
+    outcome=success|failed. Counterpart: providers/openai_compat.py emits
+    PROVIDER: done inside the same try/finally for the same request_id.
+    """
+    try:
+        async for chunk in upstream:
+            yield chunk
+    except Exception as exc:
+        elapsed = time.monotonic() - started
+        REQUEST_TOTAL.labels(provider=provider, model=model, outcome="failed").inc()
+        REQUEST_DURATION_SECONDS.labels(provider=provider, model=model).observe(elapsed)
+        logger.error(
+            "REQUEST: stream_failed request_id={} duration_ms={:.0f} "
+            "error_type={} error={}",
+            request_id, elapsed * 1000, type(exc).__name__, exc,
+        )
+        raise
+    else:
+        elapsed = time.monotonic() - started
+        REQUEST_TOTAL.labels(provider=provider, model=model, outcome="success").inc()
+        REQUEST_DURATION_SECONDS.labels(provider=provider, model=model).observe(elapsed)
+        logger.info(
+            "REQUEST: completed request_id={} duration_ms={:.0f}",
+            request_id, elapsed * 1000,
+        )
+
+
 # =============================================================================
 # Routes
 # =============================================================================
@@ -90,75 +131,122 @@ async def create_message(
     settings: Settings = Depends(get_settings),
     _auth=Depends(require_api_key),
 ):
-    """Create a message (always streaming)."""
+    """Create a message (always streaming).
 
-    try:
-        if not request_data.messages:
-            raise InvalidRequestError("messages cannot be empty")
+    Every request gets a request_id stamped at the top so error handlers,
+    optimizations, provider call sites, and the client (via X-Request-ID
+    response header) all share one correlation key.
+    """
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
+    started = time.monotonic()
+    with logger.contextualize(request_id=request_id):
+        try:
+            if not request_data.messages:
+                raise InvalidRequestError("messages cannot be empty")
 
-        optimized = try_optimizations(request_data, settings)
-        if optimized is not None:
-            return optimized
-        logger.debug("No optimization matched, routing to provider")
+            optimized = try_optimizations(request_data, settings)
+            if optimized is not None:
+                return optimized
+            logger.debug("No optimization matched, routing to provider")
 
-        # Resolve provider from the model-aware mapping
-        provider_type = Settings.parse_provider_type(
-            request_data.resolved_provider_model or settings.model
-        )
-        provider = get_provider_for_type(provider_type)
-
-        request_id = f"req_{uuid.uuid4().hex[:12]}"
-        raw_tokens = get_token_count(
-            request_data.messages, request_data.system, request_data.tools
-        )
-        logger.info(
-            "REQUEST: start request_id={} model={} provider={} messages={} input_tokens={}",
-            request_id,
-            request_data.model,
-            provider_type,
-            len(request_data.messages),
-            raw_tokens,
-        )
-        logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
-
-        # Tier 1 strips stale thinking blocks; Tier 2 summarizes older turns
-        # via the same provider when the request crosses the token threshold.
-        # Counterpart: providers/common/context_optimizer.py — returns the
-        # final token count so we don't redo a full tiktoken pass here.
-        if settings.context_optimize:
-            request_data, input_tokens = await ContextOptimizer.optimize(
-                request_data, settings, provider
-            )
-        else:
-            input_tokens = raw_tokens
-
-        if input_tokens != raw_tokens:
+            # Resolve provider from the model-aware mapping
+            resolved = request_data.resolved_provider_model or settings.model
+            provider_type = Settings.parse_provider_type(resolved)
+            provider = get_provider_for_type(provider_type)
             logger.info(
-                "REQUEST: optimized request_id={} input_tokens_after={} saved={}",
-                request_id, input_tokens, raw_tokens - input_tokens,
+                "REQUEST: provider_selected request_id={} provider={} model={} resolved={}",
+                request_id, provider_type, request_data.model, resolved,
             )
-        return StreamingResponse(
-            provider.stream_response(
-                request_data,
-                input_tokens=input_tokens,
-                request_id=request_id,
-            ),
-            media_type="text/event-stream",
-            headers={
-                "X-Accel-Buffering": "no",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
 
-    except ProviderError:
-        raise
-    except Exception as e:
-        logger.error(f"Error: {e!s}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=getattr(e, "status_code", 500),
-            detail=get_user_facing_error_message(e),
-        ) from e
+            raw_tokens = get_token_count(
+                request_data.messages, request_data.system, request_data.tools
+            )
+            logger.info(
+                "REQUEST: start request_id={} model={} provider={} messages={} input_tokens={}",
+                request_id,
+                request_data.model,
+                provider_type,
+                len(request_data.messages),
+                raw_tokens,
+            )
+            logger.debug(
+                "FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump(),
+            )
+
+            # Tier 1 strips stale thinking blocks; Tier 2 summarizes older turns
+            # via the same provider when the request crosses the token threshold.
+            # Counterpart: providers/common/context_optimizer.py — returns the
+            # final token count so we don't redo a full tiktoken pass here.
+            if settings.context_optimize:
+                try:
+                    request_data, input_tokens = await ContextOptimizer.optimize(
+                        request_data, settings, provider
+                    )
+                    COMPACTION_INVOCATION_TOTAL.labels(
+                        tier="orchestrator", outcome="success",
+                    ).inc()
+                except Exception:
+                    COMPACTION_INVOCATION_TOTAL.labels(
+                        tier="orchestrator", outcome="error",
+                    ).inc()
+                    raise
+            else:
+                input_tokens = raw_tokens
+
+            saved = raw_tokens - input_tokens
+            if saved > 0:
+                COMPACTION_TOKENS_SAVED.observe(saved)
+            if input_tokens != raw_tokens:
+                logger.info(
+                    "REQUEST: optimized request_id={} input_tokens_after={} saved={}",
+                    request_id, input_tokens, saved,
+                )
+            return StreamingResponse(
+                _instrumented_stream(
+                    provider.stream_response(
+                        request_data,
+                        input_tokens=input_tokens,
+                        request_id=request_id,
+                    ),
+                    request_id=request_id,
+                    started=started,
+                    provider=provider_type,
+                    model=request_data.model,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "X-Accel-Buffering": "no",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Request-ID": request_id,
+                },
+            )
+
+        except ProviderError:
+            REQUEST_TOTAL.labels(
+                provider="unknown", model=request_data.model, outcome="failed",
+            ).inc()
+            raise
+        except Exception as e:
+            elapsed = time.monotonic() - started
+            REQUEST_TOTAL.labels(
+                provider="unknown", model=request_data.model, outcome="failed",
+            ).inc()
+            REQUEST_DURATION_SECONDS.labels(
+                provider="unknown", model=request_data.model,
+            ).observe(elapsed)
+            logger.error(
+                "REQUEST: failed request_id={} duration_ms={:.0f} error_type={} error={}\n{}",
+                request_id,
+                elapsed * 1000,
+                type(e).__name__,
+                e,
+                traceback.format_exc(),
+            )
+            raise HTTPException(
+                status_code=getattr(e, "status_code", 500),
+                detail=get_user_facing_error_message(e),
+            ) from e
 
 
 @router.api_route("/v1/messages", methods=["HEAD", "OPTIONS"])
@@ -241,6 +329,20 @@ async def list_models(_auth=Depends(require_api_key)):
         has_more=False,
         last_id=SUPPORTED_CLAUDE_MODELS[-1].id if SUPPORTED_CLAUDE_MODELS else None,
     )
+
+
+@router.get("/metrics")
+async def metrics(settings: Settings = Depends(get_settings)):
+    """Prometheus exposition. 404 unless METRICS_ENABLED=1.
+
+    No auth required so a sidecar Prometheus can scrape without leaking the
+    Anthropic auth token. The endpoint exposes only metric counters,
+    histograms, and the Ollama supervisor state — no request payloads.
+    """
+    if not settings.metrics_enabled:
+        raise HTTPException(status_code=404, detail="metrics disabled")
+    body, content_type = render_exposition()
+    return Response(content=body, media_type=content_type)
 
 
 @router.post("/stop")

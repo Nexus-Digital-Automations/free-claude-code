@@ -23,6 +23,7 @@ dependencies = [
     "loguru>=0.7.0",
     "aiohttp>=3.13.4",
     "context-optimizer",
+    "prometheus-client>=0.25.0",
 ]
 
 [project.scripts]

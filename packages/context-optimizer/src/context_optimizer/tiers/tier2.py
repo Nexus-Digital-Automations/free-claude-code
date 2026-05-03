@@ -45,6 +45,26 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _ollama_semaphore
 
 
+def _classify_exception(exc: BaseException) -> str:
+    """Single-token reason label for COMPACTION: logs.
+
+    Heuristic on exception class names so we don't pull in the openai/httpx
+    exception types as direct dependencies. Order matters — Timeout subclasses
+    of ConnectionError must hit the timeout branch first.
+    """
+    name = type(exc).__name__
+    msg = str(exc)
+    if "Timeout" in name or "timed out" in msg.lower():
+        return "timeout"
+    if "NotFound" in name or "404" in msg:
+        return "model_missing"
+    if "RateLimit" in name or "429" in msg:
+        return "busy"
+    if "Connection" in name or "Network" in name:
+        return "network"
+    return "error"
+
+
 # ---- Tier 2b: sync compaction via llm_provider ----
 
 async def compact_sync(
@@ -63,12 +83,18 @@ async def compact_sync(
     try:
         content = await llm_provider(prompt)
     except Exception as exc:
-        logger.warning("CONTEXT_OPT: provider compaction failed {}: {}", type(exc).__name__, exc)
+        logger.warning(
+            "CONTEXT_OPT: tier=2b outcome=fallback reason={} {}: {}",
+            _classify_exception(exc), type(exc).__name__, exc,
+        )
         return None
 
     parsed = parse_response(content, len(messages))
     if parsed is None:
-        logger.warning("CONTEXT_OPT: provider parse failed; first 200 chars: {!r}", content[:200])
+        logger.warning(
+            "CONTEXT_OPT: tier=2b outcome=fallback reason=parse_error first_200={!r}",
+            content[:200],
+        )
         return None
 
     split_index, summary = parsed
@@ -137,7 +163,10 @@ async def _run_background(
                 len(messages),
             )
     except Exception as exc:
-        logger.warning("CONTEXT_OPT: background compaction raised {}: {}", type(exc).__name__, exc)
+        logger.warning(
+            "CONTEXT_OPT: tier=2a outcome=crash reason={} {}: {}",
+            _classify_exception(exc), type(exc).__name__, exc,
+        )
     finally:
         _inflight.discard(cache_key)
 
@@ -154,24 +183,34 @@ async def _do_ollama_call(
         return False
 
     prompt = build_prompt(messages, settings.render_preview_chars)
+    # async with ensures close() runs even when chat.completions.create raises
+    # mid-call. The previous form leaked the underlying httpx connection on
+    # exception because client.close() ran only on the success path.
     try:
-        client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_base_url)  # pragma: allowlist secret
-        resp = await client.chat.completions.create(
-            model=settings.ollama_model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=settings.compaction_max_tokens,
-            temperature=settings.compaction_temperature,
-            stream=False,
-        )
-        await client.close()
+        async with AsyncOpenAI(  # pragma: allowlist secret
+            api_key="ollama", base_url=settings.ollama_base_url,
+        ) as client:
+            resp = await client.chat.completions.create(
+                model=settings.ollama_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.compaction_max_tokens,
+                temperature=settings.compaction_temperature,
+                stream=False,
+            )
         content = resp.choices[0].message.content or ""
     except Exception as exc:
-        logger.warning("CONTEXT_OPT: Ollama call failed {}: {}", type(exc).__name__, exc)
+        logger.warning(
+            "CONTEXT_OPT: tier=2a outcome=fallback reason={} {}: {}",
+            _classify_exception(exc), type(exc).__name__, exc,
+        )
         return False
 
     parsed = parse_response(content, len(messages))
     if parsed is None:
-        logger.warning("CONTEXT_OPT: Ollama parse failed; first 200 chars: {!r}", content[:200])
+        logger.warning(
+            "CONTEXT_OPT: tier=2a outcome=fallback reason=parse_error first_200={!r}",
+            content[:200],
+        )
         return False
 
     split_index, summary = parsed
@@ -194,10 +233,17 @@ async def _compact_for_cache(
     try:
         content = await llm_provider(prompt)
     except Exception as exc:
-        logger.warning("CONTEXT_OPT: background provider call failed {}: {}", type(exc).__name__, exc)
+        logger.warning(
+            "CONTEXT_OPT: tier=2a-fallback outcome=fallback reason={} {}: {}",
+            _classify_exception(exc), type(exc).__name__, exc,
+        )
         return False
     parsed = parse_response(content, len(messages))
     if parsed is None:
+        logger.warning(
+            "CONTEXT_OPT: tier=2a-fallback outcome=fallback reason=parse_error first_200={!r}",
+            content[:200],
+        )
         return False
     split_index, summary = parsed
     cache.store(messages, split_index, summary)

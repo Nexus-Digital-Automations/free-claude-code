@@ -63,7 +63,8 @@ class GlobalRateLimiter:
         self._initialized = True
 
         logger.info(
-            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s, max_concurrency={max_concurrency})"
+            "RATE_LIMIT: initialized rate_limit={} rate_window={} max_concurrency={}",
+            rate_limit, rate_window, max_concurrency,
         )
 
     @classmethod
@@ -152,7 +153,9 @@ class GlobalRateLimiter:
             seconds: How long to block (default 60s)
         """
         self._blocked_until = time.monotonic() + seconds
-        logger.warning(f"Global provider rate limit set for {seconds:.1f}s (reactive)")
+        logger.warning(
+            "RATE_LIMIT: reactive_block seconds={:.1f}", seconds,
+        )
 
     def is_blocked(self) -> bool:
         """Check if currently reactively blocked."""

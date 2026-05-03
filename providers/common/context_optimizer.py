@@ -38,11 +38,22 @@ class ContextOptimizer:
             max_thinking_turns=settings.context_max_thinking_turns,
             ollama_base_url=settings.ollama_base_url,
             ollama_model=settings.ollama_model,
+            prefix_cache_max_entries=settings.context_prefix_cache_max_entries,
+            tier0_max_lines=settings.context_tier0_max_lines,
+            tier0_head_lines=settings.context_tier0_head_lines,
+            tier0_tail_lines=settings.context_tier0_tail_lines,
+            render_preview_chars=settings.context_render_preview_chars,
+            compaction_max_tokens=settings.context_compaction_max_tokens,
+            compaction_temperature=settings.context_compaction_temperature,
+            compaction_keep_alive=settings.context_compaction_keep_alive,
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]
         dict_system = _system_to_dicts(request_data.system)
-        llm_provider = _make_provider(provider, request_data.model)
+        llm_provider = _make_provider(
+            provider, request_data.model, pkg_settings.compaction_max_tokens,
+            pkg_settings.compaction_temperature,
+        )
 
         out_messages, out_system, token_count = await _PkgOptimizer.optimize(
             messages=dict_messages,
@@ -80,14 +91,14 @@ def _dicts_to_system(system: Any) -> Any:
     return system
 
 
-def _make_provider(provider: Any, model: str):
+def _make_provider(provider: Any, model: str, max_tokens: int, temperature: float):
     """Build an async (prompt: str) -> str callable from the proxy's provider._client."""
     async def call_llm(prompt: str) -> str:
         resp = await provider._client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=4000,
-            temperature=0.3,
+            max_tokens=max_tokens,
+            temperature=temperature,
             stream=False,
         )
         return resp.choices[0].message.content or ""

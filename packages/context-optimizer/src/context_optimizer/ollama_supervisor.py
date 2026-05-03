@@ -47,13 +47,10 @@ class OllamaSupervisor:
 
     _ready_until: ClassVar[float] = 0.0
     _cooldown_until: ClassVar[float] = 0.0
-    _lock: ClassVar[asyncio.Lock | None] = None
-
-    @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+    # Created at class-definition time so concurrent first callers cannot
+    # each create a distinct Lock and bypass coalescing. asyncio.Lock since
+    # 3.10 binds to the running loop lazily on first await, so this is safe.
+    _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
     async def ensure_ready(cls, settings: Any) -> bool:
@@ -63,7 +60,7 @@ class OllamaSupervisor:
             return True
         if now < cls._cooldown_until:
             return False
-        async with cls._get_lock():
+        async with cls._lock:
             now = time.monotonic()
             if now < cls._ready_until:
                 return True
@@ -169,10 +166,11 @@ class OllamaSupervisor:
 
     @classmethod
     def _reset_for_test(cls) -> None:
-        # @internal — tests only
+        # @internal — tests only. Replace the lock so a leftover acquired
+        # state from a prior test event loop can't deadlock the next one.
         cls._ready_until = 0.0
         cls._cooldown_until = 0.0
-        cls._lock = None
+        cls._lock = asyncio.Lock()
 
 
 def _api_root(base_url: str) -> str:

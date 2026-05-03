@@ -170,10 +170,19 @@ class CLISession:
                         stderr_text = stderr_output.decode(
                             "utf-8", errors="replace"
                         ).strip()
-                        logger.error(f"Claude CLI Stderr: {stderr_text}")
-                        # Yield stderr as error event so it shows in UI
+                        # Cap to last 4 KiB so a runaway CLI cannot blow up
+                        # one log line. The full stderr text still flows to
+                        # the messaging layer via the yielded error event.
+                        tail = stderr_text[-4096:]
+                        logger.error(
+                            "CLI_SESSION: stderr session_id={} bytes={} tail={!r}",
+                            self.current_session_id, len(stderr_text), tail,
+                        )
                         if stderr_text:
-                            logger.info("CLI_SESSION: Yielding error event from stderr")
+                            logger.info(
+                                "CLI_SESSION: stderr_yielded session_id={}",
+                                self.current_session_id,
+                            )
                             yield {"type": "error", "error": {"message": stderr_text}}
 
                 return_code = await self.process.wait()
@@ -241,7 +250,10 @@ class CLISession:
         """Stop the CLI process."""
         if self.process and self.process.returncode is None:
             try:
-                logger.info(f"Stopping Claude CLI process {self.process.pid}")
+                logger.info(
+                    "CLI_SESSION: stopping pid={} session_id={}",
+                    self.process.pid, self.current_session_id,
+                )
                 self.process.terminate()
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=5.0)
@@ -252,6 +264,9 @@ class CLISession:
                     unregister_pid(self.process.pid)
                 return True
             except Exception as e:
-                logger.error(f"Error stopping process: {e}")
+                logger.error(
+                    "CLI_SESSION: stop_failed session_id={} error_type={} error={}",
+                    self.current_session_id, type(e).__name__, e,
+                )
                 return False
         return False

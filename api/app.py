@@ -33,9 +33,36 @@ async def _best_effort(
     try:
         await asyncio.wait_for(awaitable, timeout=timeout_s)
     except TimeoutError:
-        logger.warning(f"Shutdown step timed out: {name} ({timeout_s}s)")
+        logger.warning(
+            "SHUTDOWN: outcome=timeout step={} timeout_s={}", name, timeout_s,
+        )
     except Exception as e:
-        logger.warning(f"Shutdown step failed: {name}: {type(e).__name__}: {e}")
+        logger.warning(
+            "SHUTDOWN: outcome=failed step={} error_type={} error={}",
+            name, type(e).__name__, e,
+        )
+
+
+async def _warm_up_ollama(settings) -> None:
+    """Bounded supervisor warm-up before accepting requests.
+
+    Waits up to settings.ollama_warmup_max_wait_s for the daemon + model.
+    On timeout, hands the remaining work off to a background task so that
+    the daemon can finish booting while the proxy continues to accept
+    traffic. The optimizer re-checks readiness on each Tier 2a call, so a
+    cold first request just falls back to provider compaction.
+    """
+    from providers.common.ollama_supervisor import OllamaSupervisor
+
+    timeout_s = getattr(settings, "ollama_warmup_max_wait_s", 8.0)
+    try:
+        ready = await asyncio.wait_for(
+            OllamaSupervisor.ensure_ready(settings), timeout=timeout_s,
+        )
+        logger.info("OLLAMA: warmup_done ready={}", ready)
+    except TimeoutError:
+        logger.warning("OLLAMA: warmup_timeout timeout_s={}", timeout_s)
+        asyncio.create_task(OllamaSupervisor.ensure_ready(settings))
 
 
 def _warn_if_process_auth_token(settings) -> None:
@@ -57,15 +84,14 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Claude Code Proxy...")
     _warn_if_process_auth_token(settings)
 
-    # Fire-and-forget Ollama warm-up. Counterpart: providers/common/ollama_supervisor.py.
-    # Background scheduling means a slow daemon spawn (10-30s) does not block
-    # the proxy from accepting requests; the optimizer re-checks readiness
-    # before each Tier 2a compaction anyway. getattr defaulting matches tests
-    # that pass a SimpleNamespace lacking context_optimize.
+    # Bounded-await Ollama warm-up. Counterpart: providers/common/ollama_supervisor.py.
+    # We wait up to ollama_warmup_max_wait_s for the supervisor; on timeout
+    # we hand the rest of the warm-up off to a background task and continue
+    # startup. The optimizer re-checks readiness before each Tier 2a call
+    # anyway, so a slow first request just falls back to provider compaction.
+    # getattr defaulting matches tests that pass a SimpleNamespace.
     if getattr(settings, "context_optimize", False):
-        from providers.common.ollama_supervisor import OllamaSupervisor
-
-        asyncio.create_task(OllamaSupervisor.ensure_ready(settings))
+        await _warm_up_ollama(settings)
 
     # Initialize messaging platform if configured
     messaging_platform = None
@@ -129,7 +155,9 @@ async def lifespan(app: FastAPI):
             # Restore tree state if available
             saved_trees = session_store.get_all_trees()
             if saved_trees:
-                logger.info(f"Restoring {len(saved_trees)} conversation trees...")
+                logger.info(
+                    "MESSAGING: tree_restore count={}", len(saved_trees),
+                )
                 from messaging.trees.queue_manager import TreeQueueManager
 
                 message_handler.replace_tree_queue(
@@ -156,13 +184,17 @@ async def lifespan(app: FastAPI):
             # Start the platform
             await messaging_platform.start()
             logger.info(
-                f"{messaging_platform.name} platform started with message handler"
+                "MESSAGING: platform_started platform={}",
+                messaging_platform.name,
             )
 
     except ImportError as e:
-        logger.warning(f"Messaging module import error: {e}")
+        logger.warning("MESSAGING: import_error error={}", e)
     except Exception as e:
-        logger.error(f"Failed to start messaging platform: {e}")
+        logger.error(
+            "MESSAGING: start_failed error_type={} error={}",
+            type(e).__name__, e,
+        )
         import traceback
 
         logger.error(traceback.format_exc())
@@ -179,7 +211,11 @@ async def lifespan(app: FastAPI):
         try:
             message_handler.session_store.flush_pending_save()
         except Exception as e:
-            logger.warning(f"Session store flush on shutdown: {e}")
+            logger.warning(
+                "SHUTDOWN: outcome=failed step=session_store.flush "
+                "error_type={} error={}",
+                type(e).__name__, e,
+            )
     logger.info("Shutdown requested, cleaning up...")
     if messaging_platform:
         await _best_effort("messaging_platform.stop", messaging_platform.stop())
@@ -218,7 +254,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(ProviderError)
     async def provider_error_handler(request: Request, exc: ProviderError):
         """Handle provider-specific errors and return Anthropic format."""
-        logger.error(f"Provider Error: {exc.error_type} - {exc.message}")
+        logger.error(
+            "PROVIDER: error error_type={} message={} status_code={}",
+            exc.error_type, exc.message, exc.status_code,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=exc.to_anthropic_format(),
@@ -227,7 +266,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception):
         """Handle general errors and return Anthropic format."""
-        logger.error(f"General Error: {exc!s}")
+        logger.error(
+            "REQUEST: unhandled_error error_type={} error={}",
+            type(exc).__name__, exc,
+        )
         import traceback
 
         logger.error(traceback.format_exc())

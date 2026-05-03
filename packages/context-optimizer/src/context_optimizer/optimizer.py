@@ -1,10 +1,16 @@
 """Owns: ContextOptimizer — orchestrates all four tiers for a single request.
 
 Tier pipeline per request:
-  raw -> tier0 (NLP) -> tier1 (thinking strip) -> prefix cache check ->
-    tokens >= hard_threshold:  await tier2.compact_sync (blocking)
-    tokens >= soft_threshold:  tier2.schedule_background (fire-and-forget)
-    else:                      return as-is
+  raw -> prefix cache check (cheapest first) ->
+    on hit:  return cached truncation immediately, skipping tier0/tier1
+    on miss: tier0 (NLP) -> tier1 (thinking strip) ->
+      tokens >= hard_threshold:  await tier2.compact_sync (blocking)
+      tokens >= soft_threshold:  tier2.schedule_background (fire-and-forget)
+      else:                      return as-is
+
+WHY cache-first: tier0 hashes every tool result for dedup; on warm
+conversations that work is wasted when a cached prefix would have
+short-circuited the request. Hashing the raw messages costs ~µs.
 
 Does NOT own: individual tier logic, cache storage, Ollama management,
 token counting, or prompt construction — all delegated to submodules.
@@ -14,7 +20,7 @@ Calls: tiers/tier0, tiers/tier1, tiers/tier2, cache.PrefixCache,
 
 # @stable — external callers depend on ContextOptimizer.optimize() signature.
 # EXTENSION POINT: add new tiers inside optimize() between tier1 and the
-#   prefix-cache step.
+#   tier2 thresholds.
 """
 
 from __future__ import annotations
@@ -75,11 +81,25 @@ class ContextOptimizer:
 
         cache = cls._get_cache(settings)
 
+        # --- Prefix cache (cheapest path first) ---
+        # Hashing raw messages avoids paying tier0+tier1 cost on warm
+        # conversations whose prefix is already cached.
+        cache_result = cache.lookup(messages, system)
+        if cache_result is not None:
+            msgs, sys = cache_result
+            tokens = count_tokens(msgs, sys, tools)
+            return msgs, sys, tokens
+
         # --- Tier 0: free NLP cleanup ---
         before_bytes = sum(
             len(str(m.get("content", ""))) for m in messages
         )
-        msgs = tier0.apply(messages, settings.tier0_max_lines)
+        msgs = tier0.apply(
+            messages,
+            settings.tier0_max_lines,
+            settings.tier0_head_lines,
+            settings.tier0_tail_lines,
+        )
         after_bytes = sum(len(str(m.get("content", ""))) for m in msgs)
         if before_bytes != after_bytes:
             logger.info(
@@ -89,12 +109,7 @@ class ContextOptimizer:
 
         # --- Tier 1: thinking-block strip ---
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
-
-        # --- Prefix cache ---
         sys = system
-        cache_result = cache.lookup(msgs, sys)
-        if cache_result is not None:
-            msgs, sys = cache_result
 
         tokens = count_tokens(msgs, sys, tools)
 

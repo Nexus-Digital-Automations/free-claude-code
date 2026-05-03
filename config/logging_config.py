@@ -13,6 +13,7 @@ from pathlib import Path
 from loguru import logger
 
 _configured = False
+_configured_path: str | None = None
 
 # Context keys we promote to top-level JSON for traceability
 _CONTEXT_KEYS = ("request_id", "node_id", "chat_id")
@@ -60,13 +61,21 @@ class InterceptHandler(logging.Handler):
 def configure_logging(log_file: str, *, force: bool = False) -> None:
     """Configure loguru with JSON output to log_file and intercept stdlib logging.
 
-    Idempotent: skips if already configured (e.g. hot reload).
-    Use force=True to reconfigure (e.g. in tests with a different log path).
+    Idempotent: skips if already configured at the same path. Use force=True
+    only when the log path actually changes (e.g. tests with a different file).
+
+    WHY the path-equality short-circuit even under force=True: re-running
+    logger.remove() / logger.add() while another thread is mid-emit
+    deadlocks loguru's internal lock. If the destination is the same, there
+    is nothing to do — skipping is always safe.
     """
-    global _configured
+    global _configured, _configured_path
+    if _configured and _configured_path == log_file:
+        return
     if _configured and not force:
         return
     _configured = True
+    _configured_path = log_file
 
     # Remove default loguru handler (writes to stderr)
     logger.remove()
