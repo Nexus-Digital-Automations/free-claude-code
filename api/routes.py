@@ -169,8 +169,15 @@ async def create_message(
                 len(request_data.messages),
                 raw_tokens,
             )
-            logger.debug(
-                "FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump(),
+            # FULL_PAYLOAD is the highest-signal line for reverse-engineering
+            # Claude Code: it captures the entire system prompt, tool list,
+            # and message history. INFO under LOG_FULL_PAYLOAD=1 (default)
+            # so it shows in default-level scrapes; DEBUG otherwise.
+            payload_level = "INFO" if settings.log_full_payload else "DEBUG"
+            logger.log(
+                payload_level,
+                "FULL_PAYLOAD request_id={} payload={}",
+                request_id, request_data.model_dump(),
             )
 
             # Tier 1 strips stale thinking blocks; Tier 2 summarizes older turns

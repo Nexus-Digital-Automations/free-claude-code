@@ -262,6 +262,13 @@ class Settings(BaseSettings):
     # Opt-in Prometheus exposition at /metrics. Off by default to keep the
     # endpoint surface minimal in solo deployments. Counterpart: api/metrics.py.
     metrics_enabled: bool = Field(default=False, validation_alias="METRICS_ENABLED")
+    # When true, the full request body Claude Code sends (system prompt,
+    # tools, messages) is logged at INFO. Highest-signal line for
+    # reverse-engineering Claude Code behavior; opt-out is per-deploy
+    # (set LOG_FULL_PAYLOAD=0) because it is verbose.
+    log_full_payload: bool = Field(
+        default=True, validation_alias="LOG_FULL_PAYLOAD",
+    )
     # Optional server API key to protect endpoints (Anthropic-style)
     # Set via env `ANTHROPIC_AUTH_TOKEN`. When empty, no auth is required.
     anthropic_auth_token: str = Field(

@@ -211,6 +211,14 @@ class OpenAICompatibleProvider(BaseProvider):
                     if delta is None:
                         continue
 
+                    # @internal — DEBUG-only firehose for reverse-engineering
+                    # streaming behavior. Off in default-level scrapes; gate
+                    # via LOGURU_LEVEL=DEBUG when investigating client logic.
+                    logger.debug(
+                        "PROVIDER: chunk{} provider={} delta={!r}",
+                        req_tag, tag, delta,
+                    )
+
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
                         logger.info(
