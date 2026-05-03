@@ -187,8 +187,9 @@ async def _do_ollama_call(
     # mid-call. The previous form leaked the underlying httpx connection on
     # exception because client.close() ran only on the success path.
     try:
-        async with AsyncOpenAI(  # pragma: allowlist secret
-            api_key="ollama", base_url=settings.ollama_base_url,
+        async with AsyncOpenAI(
+            api_key="ollama",  # pragma: allowlist secret — placeholder for local Ollama
+            base_url=settings.ollama_base_url,
         ) as client:
             resp = await client.chat.completions.create(
                 model=settings.ollama_model,
