@@ -236,6 +236,15 @@ class Settings(BaseSettings):
             "with automatic fallback to cl100k_base on download failure."
         ),
     )
+    context_tier2_keep_recent_turns: int = Field(
+        default=8,
+        validation_alias="CONTEXT_TIER2_KEEP_RECENT_TURNS",
+        description=(
+            "Quality floor for Tier 2 LLM compaction. The optimizer clamps the LLM-chosen "
+            "split_index so at least this many trailing messages are kept verbatim, "
+            "preventing aggressive summaries from collapsing recent context."
+        ),
+    )
 
     preflight_token_count: bool = Field(
         default=False,

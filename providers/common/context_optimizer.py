@@ -47,6 +47,7 @@ class ContextOptimizer:
             compaction_temperature=settings.context_compaction_temperature,
             context_compaction_keep_alive=settings.context_compaction_keep_alive,
             tokenizer_name=settings.context_tokenizer_model,
+            tier2_keep_recent_turns=settings.context_tier2_keep_recent_turns,
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]

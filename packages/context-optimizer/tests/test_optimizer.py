@@ -135,11 +135,11 @@ async def test_optimize_tier0_and_tier1_run_regardless_of_token_count():
     settings = ContextOptimizerSettings(
         compact_threshold_tokens=999_999,
         compact_soft_threshold_tokens=999_999,
+        max_thinking_turns=2,
     )
     messages = []
     for i in range(6):
         messages.append(_msg("user", f"q{i}"))
-        # assistant turns with thinking + ANSI in tool results
         messages.append({
             "role": "assistant",
             "content": [
@@ -152,10 +152,91 @@ async def test_optimize_tier0_and_tier1_run_regardless_of_token_count():
         messages=messages, settings=settings
     )
 
-    # Tier 1: only last 2 assistant turns keep thinking
     thinking_count = sum(
         1 for m in new_msgs
         if isinstance(m.get("content"), list)
         for b in m["content"] if b.get("type") == "thinking"
     )
     assert thinking_count == 2
+
+
+# ---- Tier 2 keep-recent-turns floor ----
+
+@pytest.mark.asyncio
+async def test_tier2_clamps_aggressive_split_to_keep_recent_floor():
+    """LLM picks split=26 (only 4 verbatim); floor=8 clamps to 22 (8 verbatim)."""
+    settings = ContextOptimizerSettings(
+        compact_threshold_tokens=10,
+        compact_soft_threshold_tokens=5,
+        tier2_keep_recent_turns=8,
+    )
+    messages = [_msg("user", f"message {i} " * 5) for i in range(30)]
+
+    llm_response = (
+        "<split_index>26</split_index>"
+        "<summary>Compacted prefix</summary>"
+    )
+    provider = AsyncMock(return_value=llm_response)
+
+    new_msgs, _, _ = await ContextOptimizer.optimize(
+        messages=messages, system="sys", settings=settings, llm_provider=provider,
+    )
+
+    # split clamped to 30-8=22, so 30-22=8 verbatim messages survive
+    assert len(new_msgs) == 8
+
+
+@pytest.mark.asyncio
+async def test_tier2_respects_llm_split_when_already_within_floor():
+    """LLM picks split=20 (10 verbatim); floor=8 allows up to 22, so 20 stands."""
+    settings = ContextOptimizerSettings(
+        compact_threshold_tokens=10,
+        compact_soft_threshold_tokens=5,
+        tier2_keep_recent_turns=8,
+    )
+    messages = [_msg("user", f"message {i} " * 5) for i in range(30)]
+
+    llm_response = (
+        "<split_index>20</split_index>"
+        "<summary>Compacted prefix</summary>"
+    )
+    provider = AsyncMock(return_value=llm_response)
+
+    new_msgs, _, _ = await ContextOptimizer.optimize(
+        messages=messages, system="sys", settings=settings, llm_provider=provider,
+    )
+
+    # split=20 within floor (max_allowed=22), no clamp, 30-20=10 verbatim survive
+    assert len(new_msgs) == 10
+
+
+# ---- Tier 0 system-reminder dedup ----
+
+def test_tier0_dedupes_repeated_system_reminders_across_messages():
+    reminder = "<system-reminder>CODE STANDARDS: keep files small</system-reminder>"
+    other = "<system-reminder>different content</system-reminder>"
+    messages = [
+        _msg("user", f"{reminder}\nfirst question"),
+        _msg("user", f"{reminder}\nsecond question"),
+        _msg("user", f"{reminder}\n{other}\nthird question"),
+    ]
+
+    result = tier0.apply(messages)
+
+    # First message keeps the reminder; later duplicates are replaced
+    assert "CODE STANDARDS: keep files small" in result[0]["content"][0]["text"]
+    assert "CODE STANDARDS: keep files small" not in result[1]["content"][0]["text"]
+    assert "[elided" in result[1]["content"][0]["text"]
+    # Distinct reminder in msg 3 survives; the duplicate one does not
+    assert "different content" in result[2]["content"][0]["text"]
+    assert "CODE STANDARDS" not in result[2]["content"][0]["text"]
+
+
+def test_tier0_keeps_unique_system_reminders():
+    messages = [
+        _msg("user", "<system-reminder>A</system-reminder>"),
+        _msg("user", "<system-reminder>B</system-reminder>"),
+    ]
+    result = tier0.apply(messages)
+    assert "<system-reminder>A</system-reminder>" in result[0]["content"][0]["text"]
+    assert "<system-reminder>B</system-reminder>" in result[1]["content"][0]["text"]

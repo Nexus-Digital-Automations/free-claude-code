@@ -19,17 +19,25 @@ class ContextOptimizerSettings:
     """
 
     # ---- Tier 2 thresholds ----
-    # Anchored on Claude's 200K context window: hard ~33%, fallback ~25%, soft ~13%.
-    # Defaults intentionally conservative so per-call upstream payloads stay small;
-    # callers with larger windows can override.
-    compact_threshold_tokens: int = 65_000
-    """Hard limit — sync blocking compaction via llm_provider (~33% of 200K)."""
+    # Lowered from the original 65/50/25 anchor on observation that real proxy
+    # traffic clusters bimodally (5-25K and 98-102K). Combined with the
+    # tier2_keep_recent_turns floor below, lower thresholds catch sessions
+    # earlier without risking recent-turn loss in the resulting summary.
+    compact_threshold_tokens: int = 55_000
+    """Hard limit — sync blocking compaction via llm_provider."""
 
-    compact_soft_threshold_tokens: int = 25_000
-    """Soft limit — schedule background Ollama compaction (~13% of 200K)."""
+    compact_soft_threshold_tokens: int = 18_000
+    """Soft limit — schedule background Ollama compaction. Earlier trigger
+    gives the warm Ollama call (~3-5s) time to finish before the next request
+    races the hard limit."""
 
-    compact_deepseek_fallback_threshold_tokens: int = 50_000
-    """Mid-point — near hard limit; Ollama fallback to llm_provider if busy (~25%)."""
+    compact_deepseek_fallback_threshold_tokens: int = 40_000
+    """Mid-point — near hard limit; Ollama fallback to llm_provider if busy."""
+
+    tier2_keep_recent_turns: int = 8
+    """Quality floor — Tier 2 must preserve at least this many trailing
+    messages verbatim. Clamps the LLM-chosen split_index so a too-aggressive
+    summary cannot collapse the most recent context the next turn depends on."""
 
     # ---- Tier 1 ----
     max_thinking_turns: int = 1
@@ -43,11 +51,11 @@ class ContextOptimizerSettings:
     ollama_model: str = "qwen2.5:7b"
 
     # ---- Tier 0 ----
-    tier0_max_lines: int = 200
+    tier0_max_lines: int = 120
     """Tool results longer than this get head+tail truncation."""
 
-    tier0_head_lines: int = 50
-    tier0_tail_lines: int = 50
+    tier0_head_lines: int = 60
+    tier0_tail_lines: int = 60
 
     # ---- Compaction prompt ----
     render_preview_chars: int = 2_000

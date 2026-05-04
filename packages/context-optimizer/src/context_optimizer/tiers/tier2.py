@@ -45,6 +45,20 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _ollama_semaphore
 
 
+def _clamp_split_index(split_index: int, n: int, keep_recent: int) -> int:
+    """Clamp the LLM-chosen split so the last `keep_recent` messages survive.
+
+    The LLM is instructed to pick split_index in [4, n-2] but has no view of
+    the keep_recent floor. Without this clamp an aggressive summary could
+    collapse the most recent context the next turn depends on.
+
+    Floor of 4 preserved because parse_response rejects anything lower —
+    keeping fewer than n-4 verbatim is preferable to skipping compaction
+    when n is small relative to keep_recent.
+    """
+    return max(4, min(split_index, n - keep_recent))
+
+
 def _classify_exception(exc: BaseException) -> str:
     """Single-token reason label for COMPACTION: logs.
 
@@ -97,7 +111,13 @@ async def compact_sync(
         )
         return None
 
-    split_index, summary = parsed
+    raw_split, summary = parsed
+    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
+    if split_index != raw_split:
+        logger.info(
+            "CONTEXT_OPT: clamped split_index llm={} clamped={} keep_recent={}",
+            raw_split, split_index, settings.tier2_keep_recent_turns,
+        )
     cache.store(messages, split_index, summary)
     logger.info(
         "CONTEXT_OPT: provider compacted split_index={} msgs_before={} summary_chars={}",
@@ -214,7 +234,8 @@ async def _do_ollama_call(
         )
         return False
 
-    split_index, summary = parsed
+    raw_split, summary = parsed
+    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
     cache.store(messages, split_index, summary)
     logger.info(
         "CONTEXT_OPT: ollama compacted split_index={} msgs_before={} summary_chars={}",
@@ -246,7 +267,8 @@ async def _compact_for_cache(
             content[:200],
         )
         return False
-    split_index, summary = parsed
+    raw_split, summary = parsed
+    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
     cache.store(messages, split_index, summary)
     return True
 
