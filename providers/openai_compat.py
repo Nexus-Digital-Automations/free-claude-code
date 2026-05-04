@@ -446,13 +446,42 @@ class OpenAICompatibleProvider(BaseProvider):
                     )
                     sse.input_tokens = provider_input
                     input_tokens = provider_input
+        cached_tokens = _extract_cached_tokens(usage_info)
+        cache_hit_pct = (
+            f"{(cached_tokens / input_tokens * 100):.1f}"
+            if cached_tokens is not None and input_tokens
+            else "n/a"
+        )
         logger.info(
-            "PROVIDER: done{} latency_ms={:.0f} output_tokens={} finish_reason={} error={}",
+            "PROVIDER: done{} latency_ms={:.0f} input_tokens={} cached_tokens={} "
+            "cache_hit_pct={} output_tokens={} finish_reason={} error={}",
             req_tag,
             (time.monotonic() - stream_start) * 1000,
+            input_tokens,
+            cached_tokens if cached_tokens is not None else "n/a",
+            cache_hit_pct,
             output_tokens,
             finish_reason,
             error_occurred,
         )
         yield sse.message_delta(map_stop_reason(finish_reason), output_tokens)
         yield sse.message_stop()
+
+
+def _extract_cached_tokens(usage_info: Any) -> int | None:
+    """Pull cached_tokens out of OpenAI-format usage.prompt_tokens_details.
+
+    DeepSeek and other OpenAI-compatible providers report prefix-cache hits
+    here. Returns None when the provider doesn't surface the field — every
+    older provider's usage object that hasn't adopted prompt_tokens_details
+    yet still flows through.
+    """
+    if not usage_info:
+        return None
+    details = getattr(usage_info, "prompt_tokens_details", None)
+    if details is None:
+        return None
+    cached = getattr(details, "cached_tokens", None)
+    if cached is None and isinstance(details, dict):
+        cached = details.get("cached_tokens")
+    return cached if isinstance(cached, int) else None
