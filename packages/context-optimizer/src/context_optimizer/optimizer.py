@@ -87,7 +87,7 @@ class ContextOptimizer:
         cache_result = cache.lookup(messages, system)
         if cache_result is not None:
             msgs, sys = cache_result
-            tokens = count_tokens(msgs, sys, tools)
+            tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
             return msgs, sys, tokens
 
         # --- Tier 0: free NLP cleanup ---
@@ -111,7 +111,7 @@ class ContextOptimizer:
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
         sys = system
 
-        tokens = count_tokens(msgs, sys, tools)
+        tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
 
         # --- Tier 2: LLM compaction ---
         if tokens >= settings.compact_threshold_tokens and llm_provider is not None:
@@ -122,7 +122,7 @@ class ContextOptimizer:
             result = await tier2.compact_sync(msgs, sys, settings, llm_provider, cache)
             if result is not None:
                 new_msgs, new_sys = result
-                new_tokens = count_tokens(new_msgs, new_sys, tools)
+                new_tokens = count_tokens(new_msgs, new_sys, tools, tokenizer_name=settings.tokenizer_name)
                 logger.info(
                     "CONTEXT_OPT: compacted {} -> {} messages, tokens {} -> {}",
                     len(msgs), len(new_msgs), tokens, new_tokens,

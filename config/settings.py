@@ -171,19 +171,21 @@ class Settings(BaseSettings):
     # See providers/common/context_optimizer.py for full tier documentation.
     context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
     context_max_thinking_turns: int = Field(
-        default=2, validation_alias="CONTEXT_MAX_THINKING_TURNS"
+        default=1, validation_alias="CONTEXT_MAX_THINKING_TURNS"
     )
+    # Trigger anchors (Claude 200K context window): hard ~33%, fallback ~25%, soft ~13%.
+    # Compaction kicks in at one-third of context to keep upstream API payloads small.
     context_compact_soft_threshold_tokens: int = Field(
-        default=80000, validation_alias="CONTEXT_COMPACT_SOFT_THRESHOLD_TOKENS"
+        default=25000, validation_alias="CONTEXT_COMPACT_SOFT_THRESHOLD_TOKENS"
     )
     # When tokens exceed this mid-point, Ollama is tried non-blocking; if Ollama is
     # unavailable or busy the active provider is used as a fallback so we don't arrive
-    # at the hard 200K limit without having compacted.
+    # at the hard 65K limit without having compacted.
     context_compact_deepseek_fallback_threshold_tokens: int = Field(
-        default=150000, validation_alias="CONTEXT_COMPACT_DEEPSEEK_FALLBACK_THRESHOLD_TOKENS"
+        default=50000, validation_alias="CONTEXT_COMPACT_DEEPSEEK_FALLBACK_THRESHOLD_TOKENS"
     )
     context_compact_threshold_tokens: int = Field(
-        default=200000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
+        default=65000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
     )
     # Ollama endpoint for background Tier 2a compaction.
     ollama_base_url: str = Field(
@@ -223,6 +225,28 @@ class Settings(BaseSettings):
     )
     context_compaction_keep_alive: str = Field(
         default="30m", validation_alias="CONTEXT_COMPACTION_KEEP_ALIVE"
+    )
+    context_tokenizer_model: str = Field(
+        default="deepseek-ai/DeepSeek-V3",
+        validation_alias="CONTEXT_TOKENIZER_MODEL",
+        description=(
+            "HuggingFace model ID (e.g. 'deepseek-ai/DeepSeek-V3') or tiktoken encoding name "
+            "(e.g. 'cl100k_base') used for token counting across both the compaction optimizer "
+            "and request logging. Names containing '/' are loaded via the `tokenizers` library "
+            "with automatic fallback to cl100k_base on download failure."
+        ),
+    )
+
+    preflight_token_count: bool = Field(
+        default=False,
+        validation_alias="PREFLIGHT_TOKEN_COUNT",
+        description=(
+            "Make a max_tokens=1 non-streaming call before each stream to obtain the "
+            "provider's actual prompt_tokens for message_start.usage.input_tokens. "
+            "Without this, Claude Code's TUI displays cl100k_base estimates that "
+            "diverge from DeepSeek/upstream tokenizers by 1.65-2.35x. "
+            "Disable with PREFLIGHT_TOKEN_COUNT=0."
+        ),
     )
 
     # ==================== NIM Settings ====================

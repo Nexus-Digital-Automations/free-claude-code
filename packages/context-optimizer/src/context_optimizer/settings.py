@@ -19,17 +19,20 @@ class ContextOptimizerSettings:
     """
 
     # ---- Tier 2 thresholds ----
-    compact_threshold_tokens: int = 200_000
-    """Hard limit — sync blocking compaction via llm_provider."""
+    # Anchored on Claude's 200K context window: hard ~33%, fallback ~25%, soft ~13%.
+    # Defaults intentionally conservative so per-call upstream payloads stay small;
+    # callers with larger windows can override.
+    compact_threshold_tokens: int = 65_000
+    """Hard limit — sync blocking compaction via llm_provider (~33% of 200K)."""
 
-    compact_soft_threshold_tokens: int = 80_000
-    """Soft limit — schedule background Ollama compaction."""
+    compact_soft_threshold_tokens: int = 25_000
+    """Soft limit — schedule background Ollama compaction (~13% of 200K)."""
 
-    compact_deepseek_fallback_threshold_tokens: int = 150_000
-    """Mid-point — near hard limit; Ollama fallback to llm_provider if busy."""
+    compact_deepseek_fallback_threshold_tokens: int = 50_000
+    """Mid-point — near hard limit; Ollama fallback to llm_provider if busy (~25%)."""
 
     # ---- Tier 1 ----
-    max_thinking_turns: int = 2
+    max_thinking_turns: int = 1
     """How many recent assistant turns keep their thinking blocks."""
 
     # ---- Prefix cache ----
@@ -52,5 +55,12 @@ class ContextOptimizerSettings:
 
     compaction_max_tokens: int = 4_000
     compaction_temperature: float = 0.3
-    compaction_keep_alive: str = "30m"
+    context_compaction_keep_alive: str = "30m"
     """Ollama keep_alive value for model warm-up calls."""
+
+    # ---- Tokenizer ----
+    tokenizer_name: str = "cl100k_base"
+    """tiktoken encoding name (e.g. 'cl100k_base') or HuggingFace model ID
+    (e.g. 'deepseek-ai/DeepSeek-V3') for accurate per-provider token counting.
+    Names containing '/' are treated as HuggingFace model IDs and loaded via
+    the `tokenizers` library; all other names are passed to tiktoken."""

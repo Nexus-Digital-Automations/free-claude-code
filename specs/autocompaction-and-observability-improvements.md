@@ -1,6 +1,6 @@
 ---
 title: Autocompaction + Observability Improvements (Tier 2)
-status: active
+status: completed
 created: 2026-05-03
 ---
 
@@ -42,36 +42,36 @@ This block tracks the open items from `specs/comprehensive-logging.md`. Current 
 ## Acceptance Criteria
 
 ### P0 — bugs
-- [ ] Tier 2a `_do_ollama_call` uses `async with AsyncOpenAI(...) as client:` so closure happens on exception.
-- [ ] `OllamaSupervisor._lock` is created at class-definition time (not lazy), or initialized via a thread-/coroutine-safe primitive that can never produce two distinct locks.
+- [x] Tier 2a `_do_ollama_call` uses `async with AsyncOpenAI(...) as client:` so closure happens on exception.
+- [x] `OllamaSupervisor._lock` is created at class-definition time (not lazy), or initialized via a thread-/coroutine-safe primitive that can never produce two distinct locks.
 
 ### P2 — cost
-- [ ] `tier0._truncate_long_outputs` accepts `head_lines`/`tail_lines` arguments; `tier0.apply` accepts them and `optimizer.optimize` passes the values from `ContextOptimizerSettings`.
-- [ ] `optimizer.optimize` checks the prefix cache against the raw input messages first; only on miss does it run Tier 0 + Tier 1.
-- [ ] Adapter constructs `ContextOptimizerSettings` with all of: `prefix_cache_max_entries`, `tier0_max_lines`, `tier0_head_lines`, `tier0_tail_lines`, `render_preview_chars`, `compaction_max_tokens`, `compaction_temperature`, `compaction_keep_alive` — sourced from proxy `Settings` (with new fields added there as needed).
+- [x] `tier0._truncate_long_outputs` accepts `head_lines`/`tail_lines` arguments; `tier0.apply` accepts them and `optimizer.optimize` passes the values from `ContextOptimizerSettings`.
+- [x] `optimizer.optimize` checks the prefix cache against the raw input messages first; only on miss does it run Tier 0 + Tier 1.
+- [x] Adapter constructs `ContextOptimizerSettings` with all of: `prefix_cache_max_entries`, `tier0_max_lines`, `tier0_head_lines`, `tier0_tail_lines`, `render_preview_chars`, `compaction_max_tokens`, `compaction_temperature`, `compaction_keep_alive` — sourced from proxy `Settings` (with new fields added there as needed).
 
 ### P3 — reliability
-- [ ] `configure_logging` becomes a noop when called with the same `log_file` it was last configured with, even if `force=True`.
-- [ ] `api/app.py` lifespan awaits `OllamaSupervisor.ensure_ready` with `asyncio.wait_for(..., timeout=settings.ollama_warmup_max_wait_s)`; `ollama_warmup_max_wait_s` defaults to 8s; on timeout proxy startup continues with a single `OLLAMA: warmup_timeout` warning.
-- [ ] Every `compact_sync` / `_do_ollama_call` / `_compact_for_cache` failure path logs a `reason=...` with one of the documented enum values.
+- [x] `configure_logging` becomes a noop when called with the same `log_file` it was last configured with, even if `force=True`.
+- [x] `api/app.py` lifespan awaits `OllamaSupervisor.ensure_ready` with `asyncio.wait_for(..., timeout=settings.ollama_warmup_max_wait_s)`; `ollama_warmup_max_wait_s` defaults to 8s; on timeout proxy startup continues with a single `OLLAMA: warmup_timeout` warning.
+- [x] Every `compact_sync` / `_do_ollama_call` / `_compact_for_cache` failure path logs a `reason=...` with one of the documented enum values.
 
 ### P1 — observability
-- [ ] `api/routes.py:create_message` emits `REQUEST: completed` on stream end (success and failure), with `duration_ms`, `output_tokens`, `finish_reason`, `error`.
-- [ ] `api/routes.py:create_message` emits `REQUEST: provider_selected` immediately after provider resolution, with `provider`, `model`, `reason`.
-- [ ] `request_id` is created at the top of `create_message` before any work; the entire handler runs inside `logger.contextualize(request_id=...)`; the response sets `X-Request-ID: <id>`.
-- [ ] `providers/openai_compat.py` promotes `finish_reason` log to INFO; rebadges the existing `*_STREAM` start log to use the `PROVIDER:` prefix for grep consistency.
-- [ ] `cli/session.py` caps the stderr dump (last 4 KiB) and emits it as `CLI_SESSION: stderr session_id=... bytes=... tail=...`.
-- [ ] `api/app.py` shutdown step logs use `SHUTDOWN:` prefix; messaging warns use `MESSAGING:`; `providers/rate_limit.py` reactive limit uses `RATE_LIMIT:`.
+- [x] `api/routes.py:create_message` emits `REQUEST: completed` on stream end (success and failure), with `duration_ms`, `output_tokens`, `finish_reason`, `error`.
+- [x] `api/routes.py:create_message` emits `REQUEST: provider_selected` immediately after provider resolution, with `provider`, `model`, `reason`.
+- [x] `request_id` is created at the top of `create_message` before any work; the entire handler runs inside `logger.contextualize(request_id=...)`; the response sets `X-Request-ID: <id>`.
+- [x] `providers/openai_compat.py` promotes `finish_reason` log to INFO; rebadges the existing `*_STREAM` start log to use the `PROVIDER:` prefix for grep consistency.
+- [x] `cli/session.py` caps the stderr dump (last 4 KiB) and emits it as `CLI_SESSION: stderr session_id=... bytes=... tail=...`.
+- [x] `api/app.py` shutdown step logs use `SHUTDOWN:` prefix; messaging warns use `MESSAGING:`; `providers/rate_limit.py` reactive limit uses `RATE_LIMIT:`.
 
 ### P4 — metrics
-- [ ] `prometheus_client` added as an optional dependency.
-- [ ] `GET /metrics` returns Prometheus exposition (text/plain, version 0.0.4) when `METRICS_ENABLED=1`; 404 otherwise.
-- [ ] All counters and histograms documented above are populated by the request handler and the optimizer hooks.
+- [x] `prometheus_client` added as an optional dependency.
+- [x] `GET /metrics` returns Prometheus exposition (text/plain, version 0.0.4) when `METRICS_ENABLED=1`; 404 otherwise.
+- [x] All counters and histograms documented above are populated by the request handler and the optimizer hooks.
 
 ### Validation
-- [ ] `pytest` clean (no new failures from baseline).
-- [ ] `ruff check .` clean.
-- [ ] One end-to-end smoke run — fire a single message via `cc` in proxy mode, then `tail -f logs/server.log | jq` and verify a single request shows the full new prefix family: `REQUEST: start`, `REQUEST: provider_selected`, optional `CONTEXT_OPT: ...`, `PROVIDER: stream` (start), `PROVIDER: done`, `REQUEST: completed`.
+- [x] `pytest` clean (no new failures from baseline).
+- [x] `ruff check .` clean.
+- [x] One end-to-end smoke run — fire a single message via `cc` in proxy mode, then `tail -f logs/server.log | jq` and verify a single request shows the full new prefix family: `REQUEST: start`, `REQUEST: provider_selected`, optional `CONTEXT_OPT: ...`, `PROVIDER: stream` (start), `PROVIDER: done`, `REQUEST: completed`.
 
 ## Technical Decisions
 

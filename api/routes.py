@@ -159,7 +159,8 @@ async def create_message(
             )
 
             raw_tokens = get_token_count(
-                request_data.messages, request_data.system, request_data.tools
+                request_data.messages, request_data.system, request_data.tools,
+                tokenizer_name=settings.context_tokenizer_model,
             )
             logger.info(
                 "REQUEST: start request_id={} model={} provider={} messages={} input_tokens={}",
@@ -208,6 +209,24 @@ async def create_message(
                     "REQUEST: optimized request_id={} input_tokens_after={} saved={}",
                     request_id, input_tokens, saved,
                 )
+
+            # Pre-flight to seed message_start.usage.input_tokens with the
+            # provider's actual prompt_tokens. Without this Claude Code's TUI
+            # shows cl100k_base estimates that diverge from the upstream
+            # tokenizer (DeepSeek ~1.65-2.35x cl100k for typical payloads).
+            # Counterpart: providers/openai_compat.py:preflight_token_count
+            # LlamaCpp/LMStudio providers extend BaseProvider directly and
+            # don't implement this; isinstance check also rejects MagicMock
+            # returns from test fixtures so format/arithmetic stays type-safe.
+            if settings.preflight_token_count and hasattr(provider, "preflight_token_count"):
+                preflight = await provider.preflight_token_count(request_data)
+                if isinstance(preflight, int) and preflight != input_tokens:
+                    logger.info(
+                        "REQUEST: preflight request_id={} estimate={} actual={} diff={:+d}",
+                        request_id, input_tokens, preflight, preflight - input_tokens,
+                    )
+                    input_tokens = preflight
+
             return StreamingResponse(
                 _instrumented_stream(
                     provider.stream_response(
@@ -263,13 +282,18 @@ async def probe_messages(_auth=Depends(require_api_key)):
 
 
 @router.post("/v1/messages/count_tokens")
-async def count_tokens(request_data: TokenCountRequest, _auth=Depends(require_api_key)):
+async def count_tokens(
+    request_data: TokenCountRequest,
+    settings: Settings = Depends(get_settings),
+    _auth=Depends(require_api_key),
+):
     """Count tokens for a request."""
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     with logger.contextualize(request_id=request_id):
         try:
             tokens = get_token_count(
-                request_data.messages, request_data.system, request_data.tools
+                request_data.messages, request_data.system, request_data.tools,
+                tokenizer_name=settings.context_tokenizer_model,
             )
             logger.info(
                 "COUNT_TOKENS: request_id={} model={} messages={} input_tokens={}",

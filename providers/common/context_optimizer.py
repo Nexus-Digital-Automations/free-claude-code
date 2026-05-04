@@ -45,11 +45,13 @@ class ContextOptimizer:
             render_preview_chars=settings.context_render_preview_chars,
             compaction_max_tokens=settings.context_compaction_max_tokens,
             compaction_temperature=settings.context_compaction_temperature,
-            compaction_keep_alive=settings.context_compaction_keep_alive,
+            context_compaction_keep_alive=settings.context_compaction_keep_alive,
+            tokenizer_name=settings.context_tokenizer_model,
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]
         dict_system = _system_to_dicts(request_data.system)
+        dict_tools = [t.model_dump() for t in request_data.tools] if request_data.tools else None
         llm_provider = _make_provider(
             provider, request_data.model, pkg_settings.compaction_max_tokens,
             pkg_settings.compaction_temperature,
@@ -60,7 +62,7 @@ class ContextOptimizer:
             system=dict_system,
             settings=pkg_settings,
             llm_provider=llm_provider,
-            tools=None,
+            tools=dict_tools,
         )
 
         new_request = request_data.model_copy(update={
