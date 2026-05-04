@@ -7,7 +7,7 @@ Quickstart:
     from context_optimizer import ContextOptimizer, ContextOptimizerSettings
 
     settings = ContextOptimizerSettings(
-        compact_threshold_tokens=200_000,
+        compact_threshold_tokens=65_000,
         ollama_model="qwen2.5:7b",
     )
 

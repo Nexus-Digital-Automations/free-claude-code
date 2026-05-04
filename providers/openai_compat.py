@@ -79,6 +79,55 @@ class OpenAICompatibleProvider(BaseProvider):
     def _build_request_body(self, request: Any) -> dict:
         """Build request body. Must be implemented by subclasses."""
 
+    async def preflight_token_count(self, request: Any) -> int | None:
+        """Return provider's actual prompt_tokens via a cheap max_tokens=1 call.
+
+        # WHY: message_start.usage.input_tokens is sent before the stream begins,
+        # so we can't backfill it from the streaming usage event. cl100k_base
+        # estimates diverge from upstream tokenizers (DeepSeek's tokenizer plus
+        # chat-template overhead is 1.65-2.35x cl100k for typical Claude Code
+        # payloads). A non-streaming probe is the only way to seed message_start
+        # with the real count without buffering the stream.
+        # @stable — called from api/routes.py before stream_response.
+        # Returns None on any failure; caller must fall back to its estimate.
+        """
+        try:
+            body = self._build_request_body(request)
+        except Exception as exc:
+            logger.warning(
+                "PREFLIGHT: build_body_failed provider={} {}: {}",
+                self._provider_name, type(exc).__name__, exc,
+            )
+            return None
+        # Probe must be tokenization-equivalent to the real request — keep
+        # tools/tool_choice/system intact. Claude Code sends 16+ tool defs
+        # that add ~2-4K tokens; stripping them would undercount badly.
+        # max_tokens=1 caps output, not input; usage.prompt_tokens is
+        # returned regardless of whether the model emits a tool call.
+        probe = {**body, "max_tokens": 1, "stream": False}
+        probe.pop("stream_options", None)
+        try:
+            resp = await self._client.chat.completions.create(**probe)
+        except Exception as exc:
+            logger.warning(
+                "PREFLIGHT: call_failed provider={} {}: {}",
+                self._provider_name, type(exc).__name__, exc,
+            )
+            return None
+        usage = getattr(resp, "usage", None)
+        tokens = getattr(usage, "prompt_tokens", None) if usage else None
+        if tokens is None:
+            logger.warning(
+                "PREFLIGHT: no_usage provider={} response_id={}",
+                self._provider_name, getattr(resp, "id", None),
+            )
+            return None
+        logger.debug(
+            "PREFLIGHT: prompt_tokens provider={} tokens={}",
+            self._provider_name, tokens,
+        )
+        return int(tokens)
+
     def _handle_extra_reasoning(
         self, delta: Any, sse: SSEBuilder, *, thinking_enabled: bool
     ) -> Iterator[str]:
@@ -388,13 +437,15 @@ class OpenAICompatibleProvider(BaseProvider):
         )
         if usage_info and hasattr(usage_info, "prompt_tokens"):
             provider_input = usage_info.prompt_tokens
-            if isinstance(provider_input, int):
-                logger.debug(
-                    "TOKEN_ESTIMATE: our={} provider={} diff={:+d}",
-                    input_tokens,
-                    provider_input,
-                    provider_input - input_tokens,
-                )
+            if isinstance(provider_input, int) and provider_input != input_tokens:
+                    logger.info(
+                        "TOKEN_ESTIMATE: our={} provider={} diff={:+d} — using provider count",
+                        input_tokens,
+                        provider_input,
+                        provider_input - input_tokens,
+                    )
+                    sse.input_tokens = provider_input
+                    input_tokens = provider_input
         logger.info(
             "PROVIDER: done{} latency_ms={:.0f} output_tokens={} finish_reason={} error={}",
             req_tag,

@@ -82,9 +82,6 @@ def configure_logging(log_file: str, *, force: bool = False) -> None:
 
     # Ensure logs/ (or any parent dir) exists before writing.
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    # Truncate log file on fresh start for clean debugging
-    Path(log_file).write_text("")
-
     # Add file sink: JSON lines, DEBUG level, context vars at top level
     logger.add(
         log_file,

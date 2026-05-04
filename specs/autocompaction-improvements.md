@@ -65,6 +65,16 @@ cache, response parse, Ollama network error).
   responses include both happy path and parse-failure cases to lock the
   failure-fallback contract.
 
+- **Threshold rebaseline (2026-05-03).** Tier 2 hard / fallback / soft
+  triggers lowered from 200K / 150K / 80K to 65K / 50K / 25K, anchored on
+  ~33% of Claude's 200K context window. `max_thinking_turns` reduced from
+  2 to 1. Goal: keep upstream API payloads strictly relevant and concise
+  to minimise per-call token cost. Output sizes (`compaction_max_tokens`,
+  temperature, keep-alive) untouched. Operators retain full env-var
+  override via the existing `CONTEXT_COMPACT_*` aliases. Rejected: adding
+  per-model context detection — package is intentionally model-agnostic
+  (`token_counter.py` uses cl100k_base regardless of target model).
+
 ## Files Modified
 
 | File | Change |

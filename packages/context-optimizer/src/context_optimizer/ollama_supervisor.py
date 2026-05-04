@@ -86,7 +86,7 @@ class OllamaSupervisor:
                 cls._mark_failed()
                 return False
 
-        if not await cls._warm_model(api_root, model, settings.compaction_keep_alive):
+        if not await cls._warm_model(api_root, model, settings.context_compaction_keep_alive):
             cls._mark_failed()
             return False
 
