@@ -30,3 +30,8 @@ api/dependencies.py
 # not pick up the pragma here (no baseline file in repo), so this entry covers
 # that tool.
 providers/common/context_optimizer.py
+
+# aider/ is a vendored reference copy of the open-source Aider project, checked
+# out locally for algorithm reference only. It is gitignored, never deployed,
+# and not part of this project's codebase. All findings within it are irrelevant.
+aider/**
