@@ -258,3 +258,94 @@ def test_tier0_keeps_unique_system_reminders():
     result = tier0.apply(messages)
     assert "<system-reminder>A</system-reminder>" in result[0]["content"][0]["text"]
     assert "<system-reminder>B</system-reminder>" in result[1]["content"][0]["text"]
+
+
+# ---- Tier 0b: Ollama tool-result digester ----
+
+def _long_tool_result(content: str) -> dict:
+    return {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": content},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_tier0b_returns_cached_digest_on_repeat_input(monkeypatch):
+    """Identical tool_result content must always produce identical digest bytes."""
+    from context_optimizer.tiers import tier0b
+
+    tier0b.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0b_digest_enabled=True,
+        tier0b_digest_min_bytes=100,
+        compact_threshold_tokens=999_999,
+        compact_soft_threshold_tokens=999_999,
+    )
+
+    long_content = "match line " * 200  # ~2400 bytes
+    msgs = [_long_tool_result(long_content)]
+
+    call_count = {"n": 0}
+
+    async def fake_digest_one(candidate, _settings):
+        call_count["n"] += 1
+        return "digest-text"
+
+    async def fake_ensure_ready(_settings):
+        return True
+
+    from context_optimizer.ollama_supervisor import OllamaSupervisor
+    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
+    monkeypatch.setattr(tier0b, "_digest_one", fake_digest_one)
+
+    result1 = await tier0b.apply(msgs, settings)
+    result2 = await tier0b.apply(msgs, settings)
+
+    assert call_count["n"] == 1, "second call must hit the cache, not Ollama"
+    assert result1[0]["content"][0]["content"] == "digest-text"
+    assert result2[0]["content"][0]["content"] == "digest-text"
+
+
+@pytest.mark.asyncio
+async def test_tier0b_passes_through_when_ollama_unavailable(monkeypatch):
+    from context_optimizer.tiers import tier0b
+    from context_optimizer.ollama_supervisor import OllamaSupervisor
+
+    tier0b.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0b_digest_enabled=True,
+        tier0b_digest_min_bytes=100,
+    )
+
+    long_content = "x" * 500
+    msgs = [_long_tool_result(long_content)]
+
+    async def fake_ensure_ready(_settings):
+        return False
+
+    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
+
+    result = await tier0b.apply(msgs, settings)
+    assert result[0]["content"][0]["content"] == long_content
+
+
+@pytest.mark.asyncio
+async def test_tier0b_skips_short_tool_results():
+    from context_optimizer.tiers import tier0b
+
+    tier0b.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0b_digest_enabled=True,
+        tier0b_digest_min_bytes=8000,
+    )
+
+    short = "small output"
+    msgs = [_long_tool_result(short)]
+
+    result = await tier0b.apply(msgs, settings)
+    assert result is msgs or result[0]["content"][0]["content"] == short

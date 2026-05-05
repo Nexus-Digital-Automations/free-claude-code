@@ -32,7 +32,7 @@ from loguru import logger
 
 from .cache import PrefixCache
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier1, tier2
+from .tiers import tier0, tier0b, tier1, tier2
 from .token_counter import count_tokens
 from ._core import content_hash
 
@@ -107,6 +107,13 @@ class ContextOptimizer:
                 before_bytes, after_bytes, before_bytes - after_bytes,
             )
 
+        # --- Tier 0b: Ollama tool-result digest ---
+        # Runs after Tier 0's mechanical truncation. Ollama produces a
+        # content-aware summary for tool_results above the byte threshold;
+        # the digest is content-hashed so identical inputs always yield the
+        # same bytes, keeping DeepSeek's prefix cache hot.
+        msgs = await tier0b.apply(msgs, settings)
+
         # --- Tier 1: thinking-block strip ---
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
         sys = system
@@ -144,3 +151,4 @@ class ContextOptimizer:
         # @internal — tests/conftest uses this to isolate cache state
         cls._cache = None
         tier2.reset_for_test()
+        tier0b.reset_for_test()

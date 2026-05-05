@@ -1,7 +1,9 @@
-"""Owns: compaction prompt construction and LLM response parsing.
+"""Owns: compaction prompt construction and LLM response parsing for both
+Tier 2 (whole-conversation summarization) and Tier 0b (per-tool-result digest).
 
-Does NOT own: LLM calls (tier2.py owns those) or caching (cache.py).
-Called by: tiers/tier2.py.
+Does NOT own: LLM calls (tier2.py / tier0b.py own those) or caching
+(cache.py / tier0b's local LRU).
+Called by: tiers/tier2.py, tiers/tier0b.py.
 Calls: _core.render_content.
 """
 
@@ -13,6 +15,7 @@ from ._core import render_content
 
 _SPLIT_TAG = re.compile(r"<split_index>\s*(\d+)\s*</split_index>")
 _SUMMARY_TAG = re.compile(r"<summary>\s*(.*?)\s*</summary>", re.DOTALL)
+_DIGEST_TAG = re.compile(r"<digest>\s*(.*?)\s*</digest>", re.DOTALL)
 
 
 def build_prompt(messages: list[dict], render_preview_chars: int = 2_000) -> str:
@@ -64,3 +67,44 @@ def parse_response(content: str, num_messages: int) -> tuple[int, str] | None:
         return None
     summary = sum_match.group(1).strip()
     return (split_index, summary) if summary else None
+
+
+def build_digest_prompt(content: str, tool_name: str = "tool") -> str:
+    """Prompt template for Tier 0b's per-tool-result digester.
+
+    The model sees the raw tool output and must return a content-aware
+    summary inside <digest>...</digest> tags. Verbatim-preserve list keeps
+    the things the agent actually re-references on subsequent turns.
+    """
+    return (
+        f"You are summarizing the output of a CLI tool ({tool_name}) so it can be "
+        "stored in conversation history without taking thousands of lines.\n\n"
+        "REQUIREMENTS — preserve verbatim:\n"
+        "- File paths and line numbers\n"
+        "- Function/class/identifier names\n"
+        "- Error messages and stack traces\n"
+        "- Counts (e.g. '47 matches across 12 files')\n"
+        "- Exit codes and status indicators\n\n"
+        "DROP:\n"
+        "- Boilerplate banner output\n"
+        "- Repeated rows (note the count instead)\n"
+        "- Whitespace-only padding\n\n"
+        "OUTPUT: a compact summary, ideally 10-20% of the original size, in plain "
+        "text. Wrap your entire response in <digest>...</digest> tags. No other text.\n\n"
+        "ORIGINAL OUTPUT:\n"
+        f"{content}"
+    )
+
+
+def parse_digest_response(content: str) -> str | None:
+    """Extract digest body from tagged Ollama output.
+
+    Returns the inner text on success or None on parse failure — caller
+    falls back to the original tool_result content (graceful degradation;
+    do not invent a digest from non-conforming output).
+    """
+    match = _DIGEST_TAG.search(content)
+    if not match:
+        return None
+    body = match.group(1).strip()
+    return body or None

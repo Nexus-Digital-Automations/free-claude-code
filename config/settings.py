@@ -245,6 +245,35 @@ class Settings(BaseSettings):
             "preventing aggressive summaries from collapsing recent context."
         ),
     )
+    context_tier0b_digest_enabled: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_TIER0B_DIGEST_ENABLED",
+        description=(
+            "Run Ollama-based content-aware digest on long tool_result blocks before "
+            "they enter conversation history. Reduces cumulative input tokens billed by "
+            "the upstream provider on every subsequent request that carries the same "
+            "tool_result. Falls back to Tier 0's mechanical head/tail truncation on any "
+            "Ollama failure."
+        ),
+    )
+    context_tier0b_digest_min_bytes: int = Field(
+        default=8000,
+        validation_alias="CONTEXT_TIER0B_DIGEST_MIN_BYTES",
+        description=(
+            "Tool results smaller than this byte threshold skip the digest tier. Below "
+            "this size the Ollama round-trip costs more latency than its savings are "
+            "worth."
+        ),
+    )
+    context_tier0b_digest_timeout_seconds: float = Field(
+        default=5.0,
+        validation_alias="CONTEXT_TIER0B_DIGEST_TIMEOUT_SECONDS",
+        description=(
+            "Per-batch timeout for the asyncio.gather of Ollama digest calls. On "
+            "timeout the affected tool_results pass through with Tier 0's mechanical "
+            "truncation already applied."
+        ),
+    )
 
     preflight_token_count: bool = Field(
         default=False,

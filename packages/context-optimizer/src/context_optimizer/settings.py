@@ -62,6 +62,26 @@ class ContextOptimizerSettings:
     tier0_head_lines: int = 60
     tier0_tail_lines: int = 60
 
+    # ---- Tier 0b (Ollama tool-result digester) ----
+    tier0b_digest_enabled: bool = True
+    """Run Ollama-based content-aware digest on tool_results above the
+    byte threshold. Falls back to Tier 0's mechanical truncation on any
+    Ollama failure."""
+
+    tier0b_digest_min_bytes: int = 8000
+    """Tool results smaller than this skip the digest tier entirely.
+    Mechanical head+tail (Tier 0) handles them adequately and the Ollama
+    round-trip would cost more latency than its savings are worth."""
+
+    tier0b_digest_timeout_seconds: float = 5.0
+    """Per-batch timeout for the asyncio.gather of digest calls.
+    Long enough for a warm 7B model on a typical machine; short enough
+    that a cold or stuck Ollama doesn't stall the user's request."""
+
+    tier0b_digest_cache_max_entries: int = 500
+    """LRU bound for the digest cache. Each entry stores one digest
+    text keyed by SHA-256 of the original tool_result content."""
+
     # ---- Compaction prompt ----
     render_preview_chars: int = 2_000
     """Max chars shown per message in the compaction prompt preview."""
