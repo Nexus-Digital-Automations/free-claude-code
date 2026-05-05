@@ -145,7 +145,13 @@ def parse_select_response(content: str, max_index: int) -> list[int] | None:
 
 
 def _extract_section(content: str, open_tag: str, close_tag: str) -> str:
-    open_idx = content.find(open_tag)
+    # rfind on the open tag: small models occasionally echo the prompt
+    # template before emitting their real answer (e.g. "Here is the
+    # output: <<<HEADER>>> ... <<<HEADER>>> Refactored auth ...
+    # <<<END_HEADER>>>"). Anchoring on the LAST open-tag means the echoed
+    # leading copy gets ignored. Mis-extraction still degrades to "" → the
+    # caller treats the parse as failed and writes a placeholder block.
+    open_idx = content.rfind(open_tag)
     if open_idx < 0:
         return ""
     close_idx = content.find(close_tag, open_idx + len(open_tag))

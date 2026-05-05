@@ -905,6 +905,22 @@ def test_load_index_returns_none_on_chunk_vector_shape_mismatch(tmp_path):
     assert result is None, "shape mismatch must produce a None (=rebuild) signal"
 
 
+def test_extract_section_picks_last_open_tag_so_template_echo_is_ignored():
+    """Regression: when an Ollama model echoes the prompt template before
+    emitting its real answer, _extract_section must anchor on the LAST
+    open tag, not the first. Otherwise the caller parses the echoed
+    template content as the real header/body."""
+    from context_optimizer.block_tower.prompts import _extract_section
+
+    response = (
+        "Here's what I'll output:\n"
+        "<<<HEADER>>>\n[the echoed template description]\n<<<END_HEADER>>>\n"
+        "<<<HEADER>>>\nReal header text\n<<<END_HEADER>>>\n"
+    )
+    extracted = _extract_section(response, "<<<HEADER>>>", "<<<END_HEADER>>>")
+    assert extracted == "Real header text"
+
+
 def test_tagger_extension_map_has_matching_query_for_every_language():
     """Regression: every language in _EXT_TO_LANG must have a corresponding
     <lang>-tags.scm file vendored under queries/, otherwise files in that

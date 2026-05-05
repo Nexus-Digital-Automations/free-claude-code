@@ -98,6 +98,13 @@ class GitWatcher:
         logger.info("REPO_INDEX: git_watcher stopped root={}", self._repo_root)
 
     async def _poll_loop(self) -> None:
+        # Single-writer invariant: `start()` is the only spawn site and it
+        # bails out when `_task is not None`, so at most one poll loop runs
+        # per GitWatcher instance. That makes the unsynchronised read-then-
+        # mutate of `_last_sha` (lines below) safe without a lock. If a
+        # second concurrent mutator is ever added (e.g. an external "force
+        # rescan" RPC), introduce an asyncio.Lock around the compare-and-
+        # swap; do NOT just trust the single-event-loop assumption.
         while True:
             await asyncio.sleep(self._poll_interval)
             try:

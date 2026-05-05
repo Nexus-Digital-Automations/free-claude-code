@@ -68,7 +68,10 @@ def rank_files(
         mul = _edge_multiplier(ident, len(definers))
         for referencer, num_refs in Counter(references[ident]).items():
             for definer in definers:
-                G.add_edge(referencer, definer, weight=mul * math.sqrt(num_refs), ident=ident)
+                # math.isqrt over math.sqrt: deterministic integer floor sqrt avoids
+                # platform libm drift that can flip rank order on borderline ties.
+                # num_refs >= 1 (it comes from Counter), so isqrt is always >= 1.
+                G.add_edge(referencer, definer, weight=mul * math.isqrt(num_refs), ident=ident)
 
     if G.number_of_nodes() == 0:
         return []
@@ -80,6 +83,13 @@ def rank_files(
     try:
         ranked = nx.pagerank(G, weight="weight", **pers_args)
     except ZeroDivisionError:
+        # NetworkX's iterative PageRank can divide-by-zero when the
+        # personalization/dangling vector sums to zero on some weakly
+        # connected component (rare: happens when the personalization mass
+        # falls entirely on nodes that don't appear in the graph). Falling
+        # back to no personalization uses uniform initial probability,
+        # which always sums to 1 across all nodes. Second failure means
+        # the graph itself is degenerate; we log and surrender to caller.
         try:
             ranked = nx.pagerank(G, weight="weight")
         except ZeroDivisionError:
