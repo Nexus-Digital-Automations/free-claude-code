@@ -90,6 +90,10 @@ def rank_files(
         # back to no personalization uses uniform initial probability,
         # which always sums to 1 across all nodes. Second failure means
         # the graph itself is degenerate; we log and surrender to caller.
+        logger.warning(
+            "REPO_INDEX: ranker pagerank_personalization_zero_division files={} — retrying without personalization",
+            len(tags_by_file),
+        )
         try:
             ranked = nx.pagerank(G, weight="weight")
         except ZeroDivisionError:
