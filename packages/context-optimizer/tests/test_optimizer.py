@@ -905,6 +905,24 @@ def test_load_index_returns_none_on_chunk_vector_shape_mismatch(tmp_path):
     assert result is None, "shape mismatch must produce a None (=rebuild) signal"
 
 
+def test_tagger_extension_map_has_matching_query_for_every_language():
+    """Regression: every language in _EXT_TO_LANG must have a corresponding
+    <lang>-tags.scm file vendored under queries/, otherwise files in that
+    extension silently produce zero tags and lose architectural signal in
+    PageRank. Pure data check; no ML deps required.
+    """
+    from context_optimizer.repo_index import tagger as tagger_module
+
+    queries_dir = Path(tagger_module._QUERIES_DIR)
+    languages_used = set(tagger_module._EXT_TO_LANG.values())
+
+    missing = [
+        lang for lang in sorted(languages_used)
+        if not (queries_dir / f"{lang}-tags.scm").is_file()
+    ]
+    assert not missing, f"languages without a vendored query: {missing}"
+
+
 def test_token_cap_shrinks_below_five_files_when_one_exceeds_budget(monkeypatch):
     """Regression: B1 — when even 5 files exceed the ceiling, the cap loop's
     >5 floor used to leave the prefix oversized. The fine loop must continue

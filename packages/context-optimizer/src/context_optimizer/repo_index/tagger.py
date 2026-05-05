@@ -24,6 +24,10 @@ _QUERIES_DIR = Path(__file__).parent / "queries"
 
 # Maps file extension → tree_sitter_language_pack language name.
 # Keys are lowercase; caller must normalise before lookup.
+# EXTENSION POINT: add languages here when corresponding <lang>-tags.scm exists in
+# queries/ AND tree_sitter_language_pack ships a parser for it. Files in unmapped
+# languages silently get zero tags and lose architectural signal in PageRank, so
+# every language used by the indexed repo should be covered.
 _EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
@@ -34,6 +38,18 @@ _EXT_TO_LANG: dict[str, str] = {
     ".tsx": "typescript",
     ".go": "go",
     ".rs": "rust",
+    ".java": "java",
+    ".rb": "ruby",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hh": "cpp",
+    ".hxx": "cpp",
+    ".cs": "csharp",
+    ".swift": "swift",
 }
 
 
