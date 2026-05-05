@@ -142,10 +142,12 @@ class ContextOptimizerSettings:
     repo_index_context_dir: str | None = None
     """Directory for .context/ files. None = <git_root>/.context/."""
 
-    repo_index_top_n: int = 20
-    """Hard upper bound on files included. Acts as a ceiling on the mass selector so a
-    pathologically flat repo cannot include hundreds of equally-ranked files. Raise this
-    (e.g. to 60-80) to give the mass selector more room on large repos."""
+    repo_index_top_n: int = 0
+    """Hard upper bound on files passed to the mass selector.
+    0 = auto: min(20 + n_tracked_files // 10, 100) — scales with repo size so the mass
+    selector has room to work without an arbitrary cap silently overriding it.
+    Set explicitly to pin the ceiling (e.g. 30 for a tightly-scoped prefix).
+    Counterpart: index._compute_effective_top_n."""
 
     repo_index_chunk_size_tokens: int = 200
     repo_index_chunk_overlap_tokens: int = 20

@@ -172,20 +172,21 @@ class RepoIndex:
         if not file_paths:
             raise RuntimeError(f"No tracked files found in {repo_root}")
 
-        token_ceiling = _compute_token_ceiling(settings, len(file_paths))
+        n_tracked = len(file_paths)
+        token_ceiling = _compute_token_ceiling(settings, n_tracked)
+        effective_top_n = _compute_effective_top_n(settings, n_tracked)
         logger.info(
-            "REPO_INDEX: build start hash={} mass_target={} token_ceiling={}",
-            sha[:7], settings.repo_index_pagerank_mass_target, token_ceiling,
+            "REPO_INDEX: build start hash={} tracked={} mass_target={} top_n={} token_ceiling={}",
+            sha[:7], n_tracked, settings.repo_index_pagerank_mass_target,
+            effective_top_n, token_ceiling,
         )
 
         tags_by_file = tagger.get_tags_for_repo(repo_root, file_paths)
         ranked = ranker.rank_files(tags_by_file)
-        # Mass selector covers the configured fraction of architectural signal;
-        # repo_index_top_n is a hard upper bound on file count.
         top_files = ranker.select_by_mass(
             ranked,
             settings.repo_index_pagerank_mass_target,
-            max_files=settings.repo_index_top_n,
+            max_files=effective_top_n,
         )
 
         prefix_text = _render(repo_root, top_files, settings)
@@ -251,6 +252,23 @@ def _render(repo_root: str, top_files: list[str], settings: ContextOptimizerSett
     except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as exc:
         logger.warning("REPO_INDEX: repomix unavailable, using fallback reason={}", exc)
         return renderer.render_fallback(repo_root, top_files)
+
+
+def _compute_effective_top_n(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
+    """Return the file-count ceiling for the mass selector.
+
+    When repo_index_top_n == 0 (auto), scales linearly with repo size:
+      effective = clamp(20 + n_tracked_files // 10, max=100)
+    Examples: 100 files → 30, 300 files → 50, 800 files → 100.
+    Linear scaling (vs sqrt for token ceiling) is intentional — file count is already
+    a rough proxy for breadth; diminishing returns on token quality is handled separately.
+
+    When repo_index_top_n > 0, uses that value verbatim as the explicit override.
+    Counterpart: settings.repo_index_top_n docstring.
+    """
+    if settings.repo_index_top_n > 0:
+        return settings.repo_index_top_n
+    return min(20 + n_tracked_files // 10, 100)
 
 
 def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
