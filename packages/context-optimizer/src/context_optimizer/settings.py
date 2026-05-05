@@ -143,7 +143,9 @@ class ContextOptimizerSettings:
     """Directory for .context/ files. None = <git_root>/.context/."""
 
     repo_index_top_n: int = 20
-    """Number of top-ranked files to include in the Repomix render."""
+    """Hard upper bound on files included. Acts as a ceiling on the mass selector so a
+    pathologically flat repo cannot include hundreds of equally-ranked files. Raise this
+    (e.g. to 60-80) to give the mass selector more room on large repos."""
 
     repo_index_chunk_size_tokens: int = 200
     repo_index_chunk_overlap_tokens: int = 20
@@ -156,8 +158,16 @@ class ContextOptimizerSettings:
     repo_index_poll_interval_seconds: float = 30.0
     repo_index_watch_enabled: bool = False
 
-    repo_index_max_prefix_tokens: int = 8_000
-    """Soft cap on stable prefix tokens; build() reduces top_n if exceeded. 0 = no cap."""
+    repo_index_pagerank_mass_target: float = 0.80
+    """Fraction of total PageRank score mass to cover when selecting files.
+    The mass selector stops adding files once their cumulative score reaches this fraction
+    of the total graph score. Lower values (0.60) suit monoliths where a few hub files
+    dominate; higher values (0.90) suit flat utility-heavy repos. Bounded by repo_index_top_n."""
+
+    repo_index_max_prefix_tokens: int = 0
+    """Hard token ceiling for the stable prefix.
+    0 = auto: min(8_000 + sqrt(n_tracked_files) * 1_200, 56_000).
+    Set explicitly to override. Counterpart: index._compute_token_ceiling."""
 
     repo_index_repomix_extra_args: list[str] = field(default_factory=list)
     """Additional CLI arguments passed verbatim to repomix."""

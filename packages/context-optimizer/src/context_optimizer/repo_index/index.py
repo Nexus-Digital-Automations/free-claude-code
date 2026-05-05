@@ -168,23 +168,30 @@ class RepoIndex:
                 logger.info("REPO_INDEX: build cache_hit hash={}", sha[:7])
                 return LoadedIndex(commit_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
 
-        logger.info("REPO_INDEX: build start hash={} top_n={}", sha[:7], settings.repo_index_top_n)
-
         file_paths = _list_tracked_files(repo_root)
         if not file_paths:
             raise RuntimeError(f"No tracked files found in {repo_root}")
 
+        token_ceiling = _compute_token_ceiling(settings, len(file_paths))
+        logger.info(
+            "REPO_INDEX: build start hash={} mass_target={} token_ceiling={}",
+            sha[:7], settings.repo_index_pagerank_mass_target, token_ceiling,
+        )
+
         tags_by_file = tagger.get_tags_for_repo(repo_root, file_paths)
         ranked = ranker.rank_files(tags_by_file)
-        top_files = ranker.get_top_n_files(ranked, settings.repo_index_top_n)
+        # Mass selector covers the configured fraction of architectural signal;
+        # repo_index_top_n is a hard upper bound on file count.
+        top_files = ranker.select_by_mass(
+            ranked,
+            settings.repo_index_pagerank_mass_target,
+            max_files=settings.repo_index_top_n,
+        )
 
         prefix_text = _render(repo_root, top_files, settings)
-
-        # Token cap: reduce top_n until prefix fits within max_prefix_tokens.
-        if settings.repo_index_max_prefix_tokens > 0:
-            prefix_text, top_files = _enforce_token_cap(
-                repo_root, top_files, ranked, prefix_text, settings
-            )
+        prefix_text, top_files = _enforce_token_cap(
+            repo_root, top_files, ranked, prefix_text, settings, token_ceiling
+        )
 
         chunks = embedder.chunk_text(
             prefix_text,
@@ -246,14 +253,32 @@ def _render(repo_root: str, top_files: list[str], settings: ContextOptimizerSett
         return renderer.render_fallback(repo_root, top_files)
 
 
+def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
+    """Return the maximum prefix token budget.
+
+    When max_prefix_tokens == 0 (auto), scales with sqrt(n_tracked_files):
+      ceiling = clamp(8_000 + sqrt(n) * 1_200, max=56_000)
+    Sqrt scaling matches the diminishing-returns curve of PageRank: each additional
+    file beyond the top-20 adds less architectural signal, so the budget grows
+    sub-linearly with repo size.
+
+    When max_prefix_tokens > 0, uses that value verbatim as the explicit override.
+    """
+    if settings.repo_index_max_prefix_tokens > 0:
+        return settings.repo_index_max_prefix_tokens
+    import math
+    return min(8_000 + int(math.sqrt(n_tracked_files) * 1_200), 56_000)
+
+
 def _enforce_token_cap(
     repo_root: str,
     top_files: list[str],
     ranked: list,
     prefix_text: str,
     settings: ContextOptimizerSettings,
+    token_ceiling: int,
 ) -> tuple[str, list[str]]:
-    """Reduce top_n by 5 files at a time until prefix fits within max_prefix_tokens."""
+    """Reduce file count by 5 at a time until the rendered prefix fits within token_ceiling."""
     try:
         import tiktoken
         enc = tiktoken.get_encoding("cl100k_base")
@@ -263,8 +288,7 @@ def _enforce_token_cap(
         def count(s: str) -> int:  # type: ignore[misc]
             return len(s) // 4
 
-    limit = settings.repo_index_max_prefix_tokens
-    while count(prefix_text) > limit and len(top_files) > 5:
+    while count(prefix_text) > token_ceiling and len(top_files) > 5:
         top_files = ranker.get_top_n_files(ranked, len(top_files) - 5)
         prefix_text = _render(repo_root, top_files, settings)
         logger.info("REPO_INDEX: prefix_cap_reduce top_n={} tokens~={}", len(top_files), count(prefix_text))

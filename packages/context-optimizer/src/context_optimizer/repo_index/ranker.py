@@ -127,3 +127,42 @@ def get_top_n_files(ranked: list[FileRank], n: int) -> list[str]:
     what makes the stable prefix actually stable.
     """
     return sorted(r.rel_path for r in ranked[:n])
+
+
+def select_by_mass(
+    ranked: list[FileRank],
+    mass_target: float,
+    *,
+    max_files: int | None = None,
+) -> list[str]:
+    """Select files covering mass_target fraction of total PageRank score mass.
+
+    WHY mass-based selection: the PageRank score distribution varies by repo shape.
+    A well-modularised repo has a smooth power-law decay; a monolith has a cliff after
+    3-4 hub files. A fixed top-N overshoots flat repos and undershoots hub repos.
+    Covering a fixed fraction of total architectural signal adapts to both shapes.
+
+    max_files: hard upper bound — the selection stops even if mass_target not yet reached.
+    This prevents pathologically flat repos (500 equally-ranked files) from bloating the prefix.
+
+    Returns rel_paths alphabetically sorted for deterministic Repomix output.
+    """
+    if not ranked:
+        return []
+    total = sum(r.pagerank_score for r in ranked)
+    if total == 0:
+        candidates = ranked if max_files is None else ranked[:max_files]
+        return sorted(r.rel_path for r in candidates)
+
+    cutoff = mass_target * total
+    selected: list[str] = []
+    cumulative = 0.0
+    for r in ranked:
+        selected.append(r.rel_path)
+        cumulative += r.pagerank_score
+        if cumulative >= cutoff:
+            break
+        if max_files is not None and len(selected) >= max_files:
+            break
+
+    return sorted(selected)
