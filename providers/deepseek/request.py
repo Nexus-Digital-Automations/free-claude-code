@@ -10,8 +10,26 @@ from providers.common.message_converter import build_base_request_body
 # EXTENSION POINT: add future deepseek-vN-reasoner variants here.
 _BUILTIN_REASONER_MODELS: frozenset[str] = frozenset({"deepseek-reasoner"})
 
+# Short factual instruction appended to the system prompt to encourage the
+# model to batch independent tool calls. parallel_tool_calls=True permits
+# multi-tool emission; this nudge encourages it. Counterpart:
+# settings.deepseek_parallel_tool_call_nudge.
+_PARALLEL_TOOL_CALL_NUDGE = (
+    "Tool-call parallelism: when multiple tool calls in a turn are independent "
+    "(no data dependency between them), emit them all in a single response so "
+    "they can run in parallel. Examples of independent calls: reading several "
+    "unrelated files, running multiple greps with different patterns, looking "
+    "up several pieces of context. Sequential calls are only required when one "
+    "tool's output is needed as input to the next."
+)
 
-def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
+
+def build_request_body(
+    request_data: Any,
+    *,
+    thinking_enabled: bool,
+    parallel_tool_call_nudge: bool = True,
+) -> dict:
     """Build OpenAI-format request body from Anthropic request for DeepSeek."""
     logger.debug(
         "DEEPSEEK_REQUEST: conversion start model={} msgs={}",
@@ -29,6 +47,17 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     # so this preserves observed behavior under a stable contract.
     if body.get("tools"):
         body["parallel_tool_calls"] = True
+        # Nudge fires on the same gate so the system-prompt bytes don't shift
+        # between tool-bearing and tool-less requests for the same session.
+        # Skip when no system message exists at index 0 — never invent one.
+        if parallel_tool_call_nudge:
+            messages = body.get("messages") or []
+            if messages and messages[0].get("role") == "system":
+                existing = messages[0].get("content") or ""
+                messages[0] = {
+                    **messages[0],
+                    "content": f"{existing}\n\n{_PARALLEL_TOOL_CALL_NUDGE}",
+                }
 
     extra_body: dict[str, Any] = {}
     request_extra = getattr(request_data, "extra_body", None)

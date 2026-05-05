@@ -13,19 +13,29 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 class DeepSeekProvider(OpenAICompatibleProvider):
     """DeepSeek provider using OpenAI-compatible chat completions."""
 
-    def __init__(self, config: ProviderConfig):
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        parallel_tool_call_nudge: bool = True,
+    ):
         super().__init__(
             config,
             provider_name="DEEPSEEK",
             base_url=config.base_url or DEEPSEEK_BASE_URL,
             api_key=config.api_key,
         )
+        # Counterpart: settings.deepseek_parallel_tool_call_nudge, threaded
+        # through api/dependencies.py at provider construction time so the
+        # value is fixed for the provider's lifetime.
+        self._parallel_tool_call_nudge = parallel_tool_call_nudge
 
     def _build_request_body(self, request: Any) -> dict:
         """Internal helper for tests and shared building."""
         return build_request_body(
             request,
             thinking_enabled=self._is_thinking_enabled(request),
+            parallel_tool_call_nudge=self._parallel_tool_call_nudge,
         )
 
     def _get_retry_request_body(self, error: Exception, body: dict) -> dict | None:

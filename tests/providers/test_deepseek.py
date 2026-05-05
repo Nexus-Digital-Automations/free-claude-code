@@ -152,6 +152,71 @@ def test_build_request_body_preserves_reasoning_content(deepseek_provider):
     assert body["messages"][0]["reasoning_content"] == "First think"
 
 
+# ---- Parallel-tool-call nudge ---------------------------------------------
+
+
+def _mock_tool(name: str = "read_file") -> MockBlock:
+    return MockBlock(name=name, description="x", input_schema={"type": "object"})
+
+
+def test_build_request_body_appends_parallel_tool_call_nudge_when_enabled(deepseek_config):
+    """With nudge ON + tools + system, the system content ends with the nudge."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_NUDGE
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(model="deepseek-chat", tools=[_mock_tool()])
+
+    body = provider._build_request_body(req)
+
+    assert body["messages"][0]["role"] == "system"
+    content = body["messages"][0]["content"]
+    assert content.endswith(_PARALLEL_TOOL_CALL_NUDGE)
+    assert "System prompt" in content  # original system content preserved
+
+
+def test_build_request_body_skips_nudge_when_no_tools_present(deepseek_config):
+    """Tool-less requests must not receive the nudge — keeps the gate symmetric with parallel_tool_calls."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_NUDGE
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(model="deepseek-chat", tools=[])
+
+    body = provider._build_request_body(req)
+
+    assert _PARALLEL_TOOL_CALL_NUDGE not in body["messages"][0]["content"]
+
+
+def test_build_request_body_skips_nudge_when_setting_disabled(deepseek_config):
+    """Kill switch: parallel_tool_call_nudge=False produces an unmutated system message."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_NUDGE
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=False)
+    req = MockRequest(model="deepseek-chat", tools=[_mock_tool()])
+
+    body = provider._build_request_body(req)
+
+    assert _PARALLEL_TOOL_CALL_NUDGE not in body["messages"][0]["content"]
+
+
+def test_build_request_body_does_not_invent_a_system_message_for_the_nudge(deepseek_config):
+    """If the request has no system prompt, no system message is fabricated just to carry the nudge."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_NUDGE
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(model="deepseek-chat", tools=[_mock_tool()], system=None)
+
+    body = provider._build_request_body(req)
+
+    roles = [m.get("role") for m in body["messages"]]
+    assert "system" not in roles
+    joined = "".join(str(m.get("content")) for m in body["messages"])
+    assert _PARALLEL_TOOL_CALL_NUDGE not in joined
+
+
 @pytest.mark.asyncio
 async def test_stream_response_reasoning_content(deepseek_provider):
     """reasoning_content deltas are emitted as thinking blocks."""

@@ -94,7 +94,10 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
             http_connect_timeout=settings.http_connect_timeout,
             enable_thinking=settings.enable_thinking,
         )
-        return DeepSeekProvider(config)
+        return DeepSeekProvider(
+            config,
+            parallel_tool_call_nudge=settings.deepseek_parallel_tool_call_nudge,
+        )
     if provider_type == "lmstudio":
         config = ProviderConfig(
             api_key="lm-studio",  # pragma: allowlist secret — LM Studio ignores api_key

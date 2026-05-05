@@ -96,6 +96,15 @@ class Settings(BaseSettings):
 
     # ==================== DeepSeek Config ====================
     deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
+    # Append a short instruction to the DeepSeek system prompt asking the
+    # model to emit independent tool calls in one assistant turn. Only fires
+    # when the request carries tools (same gate as the OpenAI
+    # `parallel_tool_calls` knob — they describe different concepts but
+    # apply on the same condition). Kill-switch in case it ever regresses.
+    deepseek_parallel_tool_call_nudge: bool = Field(
+        default=True,
+        validation_alias="DEEPSEEK_PARALLEL_TOOL_CALL_NUDGE",
+    )
 
     # ==================== Messaging Platform Selection ====================
     # Valid: "telegram" | "discord"
