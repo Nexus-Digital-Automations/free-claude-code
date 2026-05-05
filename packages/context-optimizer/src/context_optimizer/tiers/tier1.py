@@ -14,15 +14,23 @@ from loguru import logger
 
 
 def apply(messages: list[dict], keep_last_n: int) -> list[dict]:
-    """Strip thinking blocks from all but the last keep_last_n assistant turns."""
-    if keep_last_n <= 0:
+    """Strip thinking blocks from all but the last keep_last_n assistant turns.
+
+    keep_last_n=0 strips every thinking block. The strip-all path matters
+    for prefix-cache stability — relative "last N" rules mutate the prefix
+    every time a new turn arrives, while "strip all" is positionally stable
+    across consecutive requests.
+    """
+    if keep_last_n < 0:
         return messages
 
     assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
-    if len(assistant_indices) <= keep_last_n:
+    if not assistant_indices:
+        return messages
+    if keep_last_n > 0 and len(assistant_indices) <= keep_last_n:
         return messages
 
-    keep = set(assistant_indices[-keep_last_n:])
+    keep = set(assistant_indices[-keep_last_n:]) if keep_last_n > 0 else set()
     result = []
     stripped_blocks = 0
 

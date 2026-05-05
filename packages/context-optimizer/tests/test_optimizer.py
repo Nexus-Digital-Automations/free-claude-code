@@ -75,6 +75,24 @@ def test_tier1_noop_when_few_assistant_turns():
     assert result is messages
 
 
+def test_tier1_strips_all_thinking_when_keep_last_n_is_zero():
+    messages = []
+    for i in range(4):
+        messages.append(_msg("user", f"q{i}"))
+        messages.append(_thinking_msg(f"think{i}", f"reply{i}"))
+
+    result = tier1.apply(messages, keep_last_n=0)
+
+    thinking_count = sum(
+        1
+        for m in result
+        if isinstance(m.get("content"), list)
+        for b in m["content"]
+        if b.get("type") == "thinking"
+    )
+    assert thinking_count == 0
+
+
 # ---- Prefix cache ----
 
 def test_prefix_cache_hit_applies_summary_to_system():

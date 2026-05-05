@@ -40,8 +40,13 @@ class ContextOptimizerSettings:
     summary cannot collapse the most recent context the next turn depends on."""
 
     # ---- Tier 1 ----
-    max_thinking_turns: int = 1
-    """How many recent assistant turns keep their thinking blocks."""
+    max_thinking_turns: int = 0
+    """How many recent assistant turns keep their thinking blocks. Default 0
+    strips all thinking — both saves tokens and keeps the prefix byte-stable
+    across consecutive requests, which maximises DeepSeek prefix-cache hits.
+    A relative 'keep last N' rule would mutate the prefix every time a new
+    turn arrived (the position of 'last N' shifts). Set higher only if
+    downstream tooling needs to inspect intermediate reasoning."""
 
     # ---- Prefix cache ----
     prefix_cache_max_entries: int = 100
