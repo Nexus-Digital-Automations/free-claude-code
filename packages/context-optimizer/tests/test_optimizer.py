@@ -454,3 +454,88 @@ async def test_tier0d_skips_short_user_text():
     msgs = [_msg("user", "what time is it"), _msg("user", "now")]
     result = await tier0d.apply(msgs, settings)
     assert result is msgs
+
+
+# ---- Prefix-cache lookup must hit summaries stored at arbitrary split_index ----
+
+@pytest.mark.asyncio
+async def test_optimize_uses_prior_tier2a_cached_summary_at_arbitrary_split():
+    """Cache stores at LLM-chosen split_index; lookup must find it on next request."""
+    messages = [_msg("user", f"earlier message {i}") for i in range(10)]
+    cache = PrefixCache(max_entries=10)
+    # Tier 2a-like: store at an "unusual" split_index (not n-2, n/2, n/3, or 4)
+    cache.store(messages, split_index=7, summary="Earlier work: built the thing")
+
+    ContextOptimizer._cache = cache
+
+    result = cache.lookup(messages, "original system")
+    assert result is not None, "lookup must find a stored summary at any split_index"
+    new_msgs, new_sys = result
+    assert len(new_msgs) == 3  # 10 - 7 verbatim
+    assert "Earlier work: built the thing" in new_sys
+
+    ContextOptimizer._reset_for_test()
+
+
+# ---- Tool-result boundary safety ----
+
+def _tool_use_msg(tool_use_id: str, name: str = "Edit") -> dict:
+    return {
+        "role": "assistant",
+        "content": [
+            {"type": "tool_use", "id": tool_use_id, "name": name, "input": {}},
+        ],
+    }
+
+
+def _tool_result_msg(tool_use_id: str, output: str) -> dict:
+    return {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": tool_use_id, "content": output},
+        ],
+    }
+
+
+def test_apply_summary_advances_split_when_suffix_starts_with_tool_result():
+    """A split landing on a user tool_result must advance past it.
+
+    Otherwise the assistant tool_use ends up summarized but the
+    tool_result survives, producing the orphan that DeepSeek 400s on.
+    """
+    from context_optimizer._core import apply_summary
+
+    messages = [
+        _msg("user", "first"),
+        _msg("assistant", "second"),
+        _msg("user", "third"),
+        _tool_use_msg("tool_call_1"),
+        _tool_result_msg("tool_call_1", "result"),
+        _msg("assistant", "after"),
+    ]
+    new_msgs, _ = apply_summary(messages, split_index=4, summary="stub", system=None)
+
+    assert new_msgs == [_msg("assistant", "after")]
+
+
+def test_safe_split_index_walks_past_consecutive_tool_result_users():
+    from context_optimizer._core import safe_split_index
+
+    messages = [
+        _msg("assistant", "a"),
+        _tool_result_msg("call_a", "r1"),
+        _tool_result_msg("call_b", "r2"),
+        _msg("assistant", "b"),
+    ]
+    assert safe_split_index(messages, 1) == 3
+
+
+def test_safe_split_index_leaves_clean_boundary_alone():
+    from context_optimizer._core import safe_split_index
+
+    messages = [
+        _msg("user", "q"),
+        _msg("assistant", "a"),
+        _msg("user", "q2"),
+    ]
+    assert safe_split_index(messages, 2) == 2

@@ -20,6 +20,47 @@ def get_block_type(block: Any) -> str | None:
     return get_block_attr(block, "type")
 
 
+def _drop_orphan_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove `role: tool` messages whose tool_call_id is unmatched.
+
+    OpenAI-compatible providers (DeepSeek) reject requests with HTTP 400
+    when a tool message has no preceding assistant message containing a
+    matching tool_calls[].id. The context-optimizer's apply_summary
+    snaps split points to avoid this, but the converter is the last
+    line of defense for any other path that could feed in a malformed
+    message list (cached entries from older versions, manual edits,
+    upstream bugs).
+
+    Tracks the most recent assistant.tool_calls ID set; an assistant
+    message without tool_calls clears the set, so a later orphan tool
+    message gets dropped instead of poisoning the request.
+    Counterpart: context-optimizer/_core.safe_split_index runs first.
+    """
+    valid_ids: set[str] = set()
+    cleaned: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "assistant":
+            valid_ids = {
+                tc.get("id")
+                for tc in (msg.get("tool_calls") or [])
+                if isinstance(tc, dict) and tc.get("id")
+            }
+            cleaned.append(msg)
+        elif role == "tool":
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id in valid_ids:
+                cleaned.append(msg)
+            else:
+                logger.warning(
+                    "CONVERT: dropping orphan tool message tool_call_id={}",
+                    tool_call_id,
+                )
+        else:
+            cleaned.append(msg)
+    return cleaned
+
+
 class AnthropicToOpenAIConverter:
     """Converts Anthropic message format to OpenAI format."""
 
@@ -68,7 +109,7 @@ class AnthropicToOpenAIConverter:
                     msg["reasoning_content"] = ""
                 result.append(msg)
 
-        return result
+        return _drop_orphan_tool_messages(result)
 
     @staticmethod
     def _convert_assistant_message(

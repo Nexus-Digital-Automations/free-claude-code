@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from openai import AsyncOpenAI
 
-from .._core import apply_summary
+from .._core import apply_summary, safe_split_index
 from ..prompts import build_prompt, parse_response
 
 if TYPE_CHECKING:
@@ -57,6 +57,37 @@ def _clamp_split_index(split_index: int, n: int, keep_recent: int) -> int:
     when n is small relative to keep_recent.
     """
     return max(4, min(split_index, n - keep_recent))
+
+
+def _resolve_split_index(
+    raw_split: int,
+    messages: list[dict],
+    settings: "ContextOptimizerSettings",
+) -> int:
+    """Apply the keep-recent clamp, then snap past tool_result boundaries.
+
+    Two-stage pipeline because the constraints are independent:
+      • clamp protects the recency floor (keep_recent_turns).
+      • snap protects the tool_use/tool_result pairing (orphan tool
+        messages would crash DeepSeek with HTTP 400).
+    Logs each adjustment so we can diagnose unexpected splits in prod.
+    Counterpart: _core.safe_split_index is also called inside
+    apply_summary, so a stale cached entry that bypasses this function
+    still gets snapped at apply time.
+    """
+    clamped = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
+    if clamped != raw_split:
+        logger.info(
+            "CONTEXT_OPT: clamped split_index llm={} clamped={} keep_recent={}",
+            raw_split, clamped, settings.tier2_keep_recent_turns,
+        )
+    snapped = safe_split_index(messages, clamped)
+    if snapped != clamped:
+        logger.info(
+            "CONTEXT_OPT: snapped split_index from={} to={} reason=tool_result_boundary",
+            clamped, snapped,
+        )
+    return snapped
 
 
 def _classify_exception(exc: BaseException) -> str:
@@ -112,12 +143,7 @@ async def compact_sync(
         return None
 
     raw_split, summary = parsed
-    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
-    if split_index != raw_split:
-        logger.info(
-            "CONTEXT_OPT: clamped split_index llm={} clamped={} keep_recent={}",
-            raw_split, split_index, settings.tier2_keep_recent_turns,
-        )
+    split_index = _resolve_split_index(raw_split, messages, settings)
     cache.store(messages, split_index, summary)
     logger.info(
         "CONTEXT_OPT: provider compacted split_index={} msgs_before={} summary_chars={}",
@@ -235,7 +261,7 @@ async def _do_ollama_call(
         return False
 
     raw_split, summary = parsed
-    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
+    split_index = _resolve_split_index(raw_split, messages, settings)
     cache.store(messages, split_index, summary)
     logger.info(
         "CONTEXT_OPT: ollama compacted split_index={} msgs_before={} summary_chars={}",
@@ -268,7 +294,7 @@ async def _compact_for_cache(
         )
         return False
     raw_split, summary = parsed
-    split_index = _clamp_split_index(raw_split, len(messages), settings.tier2_keep_recent_turns)
+    split_index = _resolve_split_index(raw_split, messages, settings)
     cache.store(messages, split_index, summary)
     return True
 

@@ -1,8 +1,10 @@
 """Owns: shared pure functions used across multiple tiers.
 
-render_content — convert a message's content field to a plain string.
-content_hash   — stable SHA-256 fingerprint of a message list prefix.
-apply_summary  — replace a message prefix with a system-prompt summary block.
+render_content    — convert a message's content field to a plain string.
+content_hash      — stable SHA-256 fingerprint of a message list prefix.
+safe_split_index  — advance a split past tool_result-leading user turns so
+                    the suffix never starts with an orphaned tool response.
+apply_summary     — replace a message prefix with a system-prompt summary block.
 
 Does NOT own: tier logic, caching policy, or LLM calls.
 Called by: cache.py, prompts.py, tiers/tier0.py, tiers/tier2.py.
@@ -63,6 +65,44 @@ def content_hash(messages: list[dict]) -> str:
     return h.hexdigest()
 
 
+def _starts_with_tool_result(message: dict) -> bool:
+    if message.get("role") != "user":
+        return False
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_result"
+        for b in content
+    )
+
+
+def safe_split_index(messages: list[dict], split_index: int) -> int:
+    """Advance split_index past user turns that contain tool_result blocks.
+
+    Anthropic encodes a tool exchange as two messages: an assistant turn
+    with a `tool_use` block and the next user turn with a matching
+    `tool_result` block. apply_summary's slice (`messages[split_index:]`)
+    keeps the suffix verbatim — if split_index lands on the user
+    tool_result while the assistant tool_use sits in the discarded
+    prefix, the surviving tool_result becomes an orphan that
+    OpenAI-compatible APIs (DeepSeek) reject with HTTP 400 ("Messages
+    with role 'tool' must be a response to a preceding message with
+    'tool_calls'").
+
+    Walking forward drops the orphan along with its (already-discarded)
+    pair. Pathological case — every remaining message is a tool_result
+    user turn — pushes the index to len(messages); callers should treat
+    that as "do not compact" rather than emitting an empty suffix.
+    Counterpart: providers/common/message_converter.py also drops
+    orphan tool messages as a defensive second layer.
+    """
+    n = len(messages)
+    while split_index < n and _starts_with_tool_result(messages[split_index]):
+        split_index += 1
+    return split_index
+
+
 def apply_summary(
     messages: list[dict],
     split_index: int,
@@ -75,9 +115,15 @@ def apply_summary(
     misread by the model as a fresh user instruction. Placing it in
     system signals unambiguously that it is background context.
 
+    split_index is snapped via safe_split_index so the surviving suffix
+    never opens with an orphaned tool_result.
+
     Returns (truncated_messages, updated_system). System type shape
     matches the input (str -> str, list -> list, None -> str).
+    # @stable — external callers (cache, tier2) depend on this signature.
     """
+    split_index = safe_split_index(messages, split_index)
+
     block_text = _SUMMARY_PREFIX + summary
 
     if system is None:

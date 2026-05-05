@@ -121,14 +121,27 @@ def test_convert_user_message_list_text():
     assert result[0] == {"role": "user", "content": "Hello\nWorld"}
 
 
+def _assistant_tool_use(tool_id: str, name: str = "f") -> MockMessage:
+    # Tool messages must follow an assistant.tool_calls in the OpenAI format,
+    # otherwise DeepSeek 400s. Tests that exercise tool_result conversion need
+    # this prefix to pass through the orphan filter in convert_messages.
+    return MockMessage(
+        "assistant",
+        [MockBlock(type="tool_use", id=tool_id, name=name, input={})],
+    )
+
+
 def test_convert_user_message_tool_result_str():
     content = [
         MockBlock(type="tool_result", tool_use_id="tool_123", content="Result data")
     ]
-    messages = [MockMessage("user", content)]
+    messages = [
+        _assistant_tool_use("tool_123"),
+        MockMessage("user", content),
+    ]
     result = AnthropicToOpenAIConverter.convert_messages(messages)
-    assert len(result) == 1
-    assert result[0] == {
+    assert len(result) == 2
+    assert result[1] == {
         "role": "tool",
         "tool_call_id": "tool_123",
         "content": "Result data",
@@ -144,12 +157,15 @@ def test_convert_user_message_tool_result_list():
     content = [
         MockBlock(type="tool_result", tool_use_id="tool_456", content=tool_content)
     ]
-    messages = [MockMessage("user", content)]
+    messages = [
+        _assistant_tool_use("tool_456"),
+        MockMessage("user", content),
+    ]
     result = AnthropicToOpenAIConverter.convert_messages(messages)
-    assert len(result) == 1
-    assert result[0]["role"] == "tool"
-    assert result[0]["tool_call_id"] == "tool_456"
-    assert result[0]["content"] == "Line 1\nLine 2"
+    assert len(result) == 2
+    assert result[1]["role"] == "tool"
+    assert result[1]["tool_call_id"] == "tool_456"
+    assert result[1]["content"] == "Line 1\nLine 2"
 
 
 def test_convert_user_message_mixed_text_and_tool_result():
@@ -161,13 +177,46 @@ def test_convert_user_message_mixed_text_and_tool_result():
         MockBlock(type="text", text="Here is the result:"),
         MockBlock(type="tool_result", tool_use_id="tool_789", content="42"),
     ]
-    messages = [MockMessage("user", content)]
+    messages = [
+        _assistant_tool_use("tool_789"),
+        MockMessage("user", content),
+    ]
     result = AnthropicToOpenAIConverter.convert_messages(messages)
 
-    # Order is preserved: user text first, then tool result.
-    assert len(result) == 2
-    assert result[0] == {"role": "user", "content": "Here is the result:"}
-    assert result[1] == {"role": "tool", "tool_call_id": "tool_789", "content": "42"}
+    # Order is preserved: assistant tool_use, user text, then tool result.
+    assert len(result) == 3
+    assert result[1] == {"role": "user", "content": "Here is the result:"}
+    assert result[2] == {"role": "tool", "tool_call_id": "tool_789", "content": "42"}
+
+
+def test_convert_drops_orphan_tool_message_without_matching_tool_call():
+    """Orphan tool messages must be filtered to prevent DeepSeek HTTP 400.
+
+    A `role: tool` message with no preceding assistant.tool_calls match
+    is rejected upstream with "Messages with role 'tool' must be a
+    response to a preceding message with 'tool_calls'".
+    """
+    content = [
+        MockBlock(type="tool_result", tool_use_id="orphan_id", content="stale")
+    ]
+    messages = [MockMessage("user", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    assert result == []
+
+
+def test_convert_drops_orphan_tool_when_id_does_not_match_prior_tool_call():
+    content = [
+        MockBlock(type="tool_result", tool_use_id="wrong_id", content="x")
+    ]
+    messages = [
+        _assistant_tool_use("right_id"),
+        MockMessage("user", content),
+    ]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    # Assistant survives; the mismatched tool message is dropped.
+    assert len(result) == 1
+    assert result[0]["role"] == "assistant"
+    assert result[0]["tool_calls"][0]["id"] == "right_id"
 
 
 # --- Message Conversion Tests: Assistant ---
@@ -431,15 +480,18 @@ def test_convert_user_message_text_before_tool_result_order():
         MockBlock(type="text", text="Please use this result:"),
         MockBlock(type="tool_result", tool_use_id="t1", content="42"),
     ]
-    messages = [MockMessage("user", content)]
+    messages = [
+        _assistant_tool_use("t1"),
+        MockMessage("user", content),
+    ]
     result = AnthropicToOpenAIConverter.convert_messages(messages)
 
-    assert len(result) == 2
-    # Expected: user text first, then tool result
-    assert result[0]["role"] == "user"
-    assert result[0]["content"] == "Please use this result:"
-    assert result[1]["role"] == "tool"
-    assert result[1]["tool_call_id"] == "t1"
+    assert len(result) == 3
+    # Expected: assistant tool_use, user text, then tool result
+    assert result[1]["role"] == "user"
+    assert result[1]["content"] == "Please use this result:"
+    assert result[2]["role"] == "tool"
+    assert result[2]["tool_call_id"] == "t1"
 
 
 def test_convert_multiple_tool_results():
@@ -448,8 +500,17 @@ def test_convert_multiple_tool_results():
         MockBlock(type="tool_result", tool_use_id="t1", content="Result 1"),
         MockBlock(type="tool_result", tool_use_id="t2", content="Result 2"),
     ]
-    messages = [MockMessage("user", content)]
+    messages = [
+        MockMessage(
+            "assistant",
+            [
+                MockBlock(type="tool_use", id="t1", name="f", input={}),
+                MockBlock(type="tool_use", id="t2", name="f", input={}),
+            ],
+        ),
+        MockMessage("user", content),
+    ]
     result = AnthropicToOpenAIConverter.convert_messages(messages)
-    assert len(result) == 2
-    assert result[0]["tool_call_id"] == "t1"
-    assert result[1]["tool_call_id"] == "t2"
+    assert len(result) == 3
+    assert result[1]["tool_call_id"] == "t1"
+    assert result[2]["tool_call_id"] == "t2"

@@ -287,13 +287,20 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "gitpython", marker = "extra == 'repo-index'", specifier = ">=3.1" },
     { name = "httpx", specifier = ">=0.25" },
     { name = "loguru", specifier = ">=0.7" },
+    { name = "networkx", marker = "extra == 'repo-index'", specifier = ">=3.0" },
+    { name = "numpy", marker = "extra == 'repo-index'", specifier = ">=1.24" },
     { name = "openai", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0" },
+    { name = "sentence-transformers", marker = "extra == 'repo-index'", specifier = ">=2.2" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "tokenizers", specifier = ">=0.15" },
+    { name = "tree-sitter", marker = "extra == 'repo-index'", specifier = ">=0.22" },
+    { name = "tree-sitter-language-pack", marker = "extra == 'repo-index'", specifier = ">=0.0.4" },
 ]
+provides-extras = ["repo-index"]
 
 [package.metadata.requires-dev]
 dev = [

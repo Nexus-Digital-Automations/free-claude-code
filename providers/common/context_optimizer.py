@@ -56,6 +56,7 @@ class ContextOptimizer:
             tier0c_keep_recent_calls=settings.context_tier0c_keep_recent_calls,
             tier0d_digest_enabled=settings.context_tier0d_digest_enabled,
             tier0d_digest_min_bytes=settings.context_tier0d_digest_min_bytes,
+            context_cache_dir=getattr(settings, "context_cache_dir", None),
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]
