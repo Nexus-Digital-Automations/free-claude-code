@@ -165,29 +165,24 @@ class Settings(BaseSettings):
 
     # ==================== Context Autocompaction ====================
     # Tier 0: deterministic NLP strip (ANSI, dedup, truncate). Always-on.
+    # Tier 0b/0c/0d: Ollama digests for tool results, tool_use inputs, long pastes.
     # Tier 1: strip thinking blocks from old turns. Always-on.
-    # Tier 2a: background Ollama compaction at soft threshold (non-blocking).
-    # Tier 2b: sync provider compaction at hard threshold (blocking fallback).
-    # See providers/common/context_optimizer.py for full tier documentation.
+    # Layer 0 (block tower): immutable per-session compaction blocks plus an
+    #   Ollama relevance selector that prunes irrelevant blocks per request.
+    #   Cold-start emergency seal fires when tokens cross compact_threshold_tokens.
+    # See providers/common/context_optimizer.py and packages/context-optimizer/
+    # for full layer documentation.
     context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
     context_max_thinking_turns: int = Field(
         default=1, validation_alias="CONTEXT_MAX_THINKING_TURNS"
     )
-    # Trigger anchors (Claude 200K context window): hard ~33%, fallback ~25%, soft ~13%.
-    # Compaction kicks in at one-third of context to keep upstream API payloads small.
-    context_compact_soft_threshold_tokens: int = Field(
-        default=25000, validation_alias="CONTEXT_COMPACT_SOFT_THRESHOLD_TOKENS"
-    )
-    # When tokens exceed this mid-point, Ollama is tried non-blocking; if Ollama is
-    # unavailable or busy the active provider is used as a fallback so we don't arrive
-    # at the hard 65K limit without having compacted.
-    context_compact_deepseek_fallback_threshold_tokens: int = Field(
-        default=50000, validation_alias="CONTEXT_COMPACT_DEEPSEEK_FALLBACK_THRESHOLD_TOKENS"
-    )
+    # Cold-start emergency seal threshold. When the very first request of a
+    # session arrives already over this size and no blocks have been sealed
+    # yet, the block tower runs a synchronous seal (bounded ~12s) before
+    # forwarding so the upstream payload stays under budget.
     context_compact_threshold_tokens: int = Field(
         default=65000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
     )
-    # Ollama endpoint for background Tier 2a compaction.
     ollama_base_url: str = Field(
         default="http://localhost:11434/v1", validation_alias="OLLAMA_BASE_URL"
     )
@@ -202,9 +197,6 @@ class Settings(BaseSettings):
 
     # Context-optimizer package config that the adapter forwards verbatim.
     # The package exposes these as ContextOptimizerSettings dataclass fields.
-    context_prefix_cache_max_entries: int = Field(
-        default=100, validation_alias="CONTEXT_PREFIX_CACHE_MAX_ENTRIES"
-    )
     context_tier0_max_lines: int = Field(
         default=200, validation_alias="CONTEXT_TIER0_MAX_LINES"
     )
@@ -234,15 +226,6 @@ class Settings(BaseSettings):
             "(e.g. 'cl100k_base') used for token counting across both the compaction optimizer "
             "and request logging. Names containing '/' are loaded via the `tokenizers` library "
             "with automatic fallback to cl100k_base on download failure."
-        ),
-    )
-    context_tier2_keep_recent_turns: int = Field(
-        default=8,
-        validation_alias="CONTEXT_TIER2_KEEP_RECENT_TURNS",
-        description=(
-            "Quality floor for Tier 2 LLM compaction. The optimizer clamps the LLM-chosen "
-            "split_index so at least this many trailing messages are kept verbatim, "
-            "preventing aggressive summaries from collapsing recent context."
         ),
     )
     context_tier0b_digest_enabled: bool = Field(
@@ -319,26 +302,18 @@ class Settings(BaseSettings):
         ),
     )
 
-    # ---- Block tower (Layer 0 immutable compaction) ----
-    # Counterpart: packages/context-optimizer/.../block_tower/. When enabled,
-    # bypasses Tier 2 — the tower owns conversation-level compaction.
-    context_block_tower_enabled: bool = Field(
-        default=True,
-        validation_alias="CONTEXT_BLOCK_TOWER_ENABLED",
-        description=(
-            "Enable Layer 0 immutable block tower. Seals uncompacted tail into "
-            "frozen blocks; selects per-request via Ollama relevance scorer. "
-            "When True, the rolling-summary Tier 2 path is bypassed. Disable "
-            "with CONTEXT_BLOCK_TOWER_ENABLED=0 to fall back to Tier 2."
-        ),
-    )
+    # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
+    # Counterpart: packages/context-optimizer/.../block_tower/. Always-on; the
+    # tower seals immutable per-session blocks and prunes irrelevant ones per
+    # request via the Ollama selector. Set context_block_selection_mode='off'
+    # to disable Layer 0 entirely (only the per-message tiers run).
     context_block_selection_mode: str = Field(
         default="selective",
         validation_alias="CONTEXT_BLOCK_SELECTION_MODE",
         description=(
             "One of {'selective', 'all', 'off'}. 'selective' = Ollama picks "
             "relevant blocks per request; 'all' = always include every block "
-            "(skips selector call); 'off' = disable Layer 0 even when enabled."
+            "(skips selector call); 'off' = disable Layer 0 entirely."
         ),
     )
     context_block_seal_min_tail_tokens: int = Field(

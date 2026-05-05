@@ -1,16 +1,13 @@
 """Integration and unit tests for context_optimizer package.
 
-Covers: Tier 0 ANSI strip, Tier 0 dedup, Tier 1 thinking strip,
-prefix-cache hit, Tier 2b via mocked llm_provider, full optimize() flow.
+Covers: Tier 0 cleanup, Tier 1 thinking strip, Tier 0b/0c/0d Ollama digests,
+and the block tower's emergency-seal placeholder fallback.
 """
-
-from unittest.mock import AsyncMock
 
 import pytest
 
 from context_optimizer import ContextOptimizer, ContextOptimizerSettings
 from context_optimizer.tiers import tier0, tier1
-from context_optimizer.cache import PrefixCache
 
 
 def _msg(role: str, text: str) -> dict:
@@ -93,67 +90,15 @@ def test_tier1_strips_all_thinking_when_keep_last_n_is_zero():
     assert thinking_count == 0
 
 
-# ---- Prefix cache ----
-
-def test_prefix_cache_hit_applies_summary_to_system():
-    messages = [_msg("user", f"m{i}") for i in range(6)]
-    cache = PrefixCache(max_entries=10)
-    cache.store(messages, split_index=4, summary="Prior work: fixed X")
-
-    result = cache.lookup(messages, "original system")
-    assert result is not None
-    new_msgs, new_sys = result
-    assert len(new_msgs) == 2
-    assert "Prior work: fixed X" in new_sys
-    assert "original system" in new_sys
-
-
-def test_prefix_cache_miss_returns_none():
-    cache = PrefixCache(max_entries=10)
-    messages = [_msg("user", f"m{i}") for i in range(6)]
-    assert cache.lookup(messages, "sys") is None
-
-
-# ---- Tier 2b via llm_provider ----
+# ---- Full optimize() with block tower disabled ----
 
 @pytest.mark.asyncio
-async def test_optimize_calls_llm_provider_when_tokens_exceed_threshold():
-    settings = ContextOptimizerSettings(
-        compact_threshold_tokens=10,   # force immediate compaction
-        compact_soft_threshold_tokens=5,
-    )
-    messages = [_msg("user", f"message {i} " * 5) for i in range(8)]
-
-    llm_response = (
-        "<split_index>4</split_index>"
-        "<summary>Earlier: user discussed messages 0-3</summary>"
-    )
-    provider = AsyncMock(return_value=llm_response)
-
-    new_msgs, new_sys, _ = await ContextOptimizer.optimize(
-        messages=messages,
-        system="sys",
-        settings=settings,
-        llm_provider=provider,
-    )
-
-    provider.assert_called_once()
-    # summary moves to system, not a synthetic user message
-    assert "Earlier:" in new_sys
-    assert not any(
-        isinstance(m.get("content"), list)
-        and any(b.get("type") == "text" and "<conversation_summary>" in b.get("text", "")
-                for b in m["content"])
-        for m in new_msgs
-    )
-
-
-@pytest.mark.asyncio
-async def test_optimize_tier0_and_tier1_run_regardless_of_token_count():
+async def test_optimize_runs_tier0_and_tier1_when_layer0_disabled():
+    """With block_selection_mode='off' the tower never loads, so tier0/1 are the only state mutators."""
     settings = ContextOptimizerSettings(
         compact_threshold_tokens=999_999,
-        compact_soft_threshold_tokens=999_999,
         max_thinking_turns=2,
+        block_selection_mode="off",
     )
     messages = []
     for i in range(6):
@@ -178,56 +123,6 @@ async def test_optimize_tier0_and_tier1_run_regardless_of_token_count():
     assert thinking_count == 2
 
 
-# ---- Tier 2 keep-recent-turns floor ----
-
-@pytest.mark.asyncio
-async def test_tier2_clamps_aggressive_split_to_keep_recent_floor():
-    """LLM picks split=26 (only 4 verbatim); floor=8 clamps to 22 (8 verbatim)."""
-    settings = ContextOptimizerSettings(
-        compact_threshold_tokens=10,
-        compact_soft_threshold_tokens=5,
-        tier2_keep_recent_turns=8,
-    )
-    messages = [_msg("user", f"message {i} " * 5) for i in range(30)]
-
-    llm_response = (
-        "<split_index>26</split_index>"
-        "<summary>Compacted prefix</summary>"
-    )
-    provider = AsyncMock(return_value=llm_response)
-
-    new_msgs, _, _ = await ContextOptimizer.optimize(
-        messages=messages, system="sys", settings=settings, llm_provider=provider,
-    )
-
-    # split clamped to 30-8=22, so 30-22=8 verbatim messages survive
-    assert len(new_msgs) == 8
-
-
-@pytest.mark.asyncio
-async def test_tier2_respects_llm_split_when_already_within_floor():
-    """LLM picks split=20 (10 verbatim); floor=8 allows up to 22, so 20 stands."""
-    settings = ContextOptimizerSettings(
-        compact_threshold_tokens=10,
-        compact_soft_threshold_tokens=5,
-        tier2_keep_recent_turns=8,
-    )
-    messages = [_msg("user", f"message {i} " * 5) for i in range(30)]
-
-    llm_response = (
-        "<split_index>20</split_index>"
-        "<summary>Compacted prefix</summary>"
-    )
-    provider = AsyncMock(return_value=llm_response)
-
-    new_msgs, _, _ = await ContextOptimizer.optimize(
-        messages=messages, system="sys", settings=settings, llm_provider=provider,
-    )
-
-    # split=20 within floor (max_allowed=22), no clamp, 30-20=10 verbatim survive
-    assert len(new_msgs) == 10
-
-
 # ---- Tier 0 system-reminder dedup ----
 
 def test_tier0_dedupes_repeated_system_reminders_across_messages():
@@ -241,11 +136,9 @@ def test_tier0_dedupes_repeated_system_reminders_across_messages():
 
     result = tier0.apply(messages)
 
-    # First message keeps the reminder; later duplicates are replaced
     assert "CODE STANDARDS: keep files small" in result[0]["content"][0]["text"]
     assert "CODE STANDARDS: keep files small" not in result[1]["content"][0]["text"]
     assert "[elided" in result[1]["content"][0]["text"]
-    # Distinct reminder in msg 3 survives; the duplicate one does not
     assert "different content" in result[2]["content"][0]["text"]
     assert "CODE STANDARDS" not in result[2]["content"][0]["text"]
 
@@ -282,7 +175,7 @@ async def test_tier0b_returns_cached_digest_on_repeat_input(monkeypatch):
         tier0b_digest_enabled=True,
         tier0b_digest_min_bytes=100,
         compact_threshold_tokens=999_999,
-        compact_soft_threshold_tokens=999_999,
+        block_selection_mode="off",
     )
 
     long_content = "match line " * 200  # ~2400 bytes
@@ -393,10 +286,8 @@ async def test_tier0c_keeps_recent_tool_use_calls_verbatim(monkeypatch):
 
     result = await tier0c.apply(msgs, settings)
 
-    # Last 2 must be untouched
     assert result[2]["content"][0]["input"] == big_input
     assert result[3]["content"][0]["input"] == big_input
-    # First 2 should have been digested
     assert "_compacted_summary" in result[0]["content"][0]["input"]
     assert "_compacted_summary" in result[1]["content"][0]["input"]
 
@@ -420,7 +311,7 @@ async def test_tier0d_skips_active_last_user_message(monkeypatch):
     msgs = [
         _msg("user", big_text),
         _msg("assistant", "ack"),
-        _msg("user", big_text),  # last user — must not be digested
+        _msg("user", big_text),
     ]
 
     async def fake_ensure_ready(_settings):
@@ -434,9 +325,7 @@ async def test_tier0d_skips_active_last_user_message(monkeypatch):
 
     result = await tier0d.apply(msgs, settings)
 
-    # The historical user message gets digested
     assert result[0]["content"][0]["text"] == "user-paste-digest"
-    # The active (last) user message stays verbatim
     assert result[2]["content"][0]["text"] == big_text
 
 
@@ -456,86 +345,55 @@ async def test_tier0d_skips_short_user_text():
     assert result is msgs
 
 
-# ---- Prefix-cache lookup must hit summaries stored at arbitrary split_index ----
+# ---- Block tower seal_sync emergency placeholder fallback ----
 
 @pytest.mark.asyncio
-async def test_optimize_uses_prior_tier2a_cached_summary_at_arbitrary_split():
-    """Cache stores at LLM-chosen split_index; lookup must find it on next request."""
-    messages = [_msg("user", f"earlier message {i}") for i in range(10)]
-    cache = PrefixCache(max_entries=10)
-    # Tier 2a-like: store at an "unusual" split_index (not n-2, n/2, n/3, or 4)
-    cache.store(messages, split_index=7, summary="Earlier work: built the thing")
+async def test_seal_sync_writes_placeholder_when_ollama_unreachable(tmp_path, monkeypatch):
+    """When Ollama is unreachable, seal_sync writes a deterministic placeholder block.
 
-    ContextOptimizer._cache = cache
-
-    result = cache.lookup(messages, "original system")
-    assert result is not None, "lookup must find a stored summary at any split_index"
-    new_msgs, new_sys = result
-    assert len(new_msgs) == 3  # 10 - 7 verbatim
-    assert "Earlier work: built the thing" in new_sys
-
-    ContextOptimizer._reset_for_test()
-
-
-# ---- Tool-result boundary safety ----
-
-def _tool_use_msg(tool_use_id: str, name: str = "Edit") -> dict:
-    return {
-        "role": "assistant",
-        "content": [
-            {"type": "tool_use", "id": tool_use_id, "name": name, "input": {}},
-        ],
-    }
-
-
-def _tool_result_msg(tool_use_id: str, output: str) -> dict:
-    return {
-        "role": "user",
-        "content": [
-            {"type": "tool_result", "tool_use_id": tool_use_id, "content": output},
-        ],
-    }
-
-
-def test_apply_summary_advances_split_when_suffix_starts_with_tool_result():
-    """A split landing on a user tool_result must advance past it.
-
-    Otherwise the assistant tool_use ends up summarized but the
-    tool_result survives, producing the orphan that DeepSeek 400s on.
+    The placeholder must satisfy the same immutability invariant as a real
+    block (range_start = previous range_end, body bytes deterministic). Two
+    seals with the same tail produce byte-identical placeholders so prefix
+    caches stay stable.
     """
-    from context_optimizer._core import apply_summary
+    from context_optimizer.block_tower import seal_sync
+    from context_optimizer.block_tower.store import BlockStore
+    from context_optimizer.ollama_supervisor import OllamaSupervisor
 
-    messages = [
-        _msg("user", "first"),
-        _msg("assistant", "second"),
-        _msg("user", "third"),
-        _tool_use_msg("tool_call_1"),
-        _tool_result_msg("tool_call_1", "result"),
-        _msg("assistant", "after"),
-    ]
-    new_msgs, _ = apply_summary(messages, split_index=4, summary="stub", system=None)
+    BlockStore.reset_for_test()
 
-    assert new_msgs == [_msg("assistant", "after")]
+    async def fake_ensure_ready(_settings):
+        return False
 
+    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
 
-def test_safe_split_index_walks_past_consecutive_tool_result_users():
-    from context_optimizer._core import safe_split_index
+    settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
+    messages = [_msg("user", "hello world") for _ in range(3)]
+    store = BlockStore.get_or_build("session_aaa", tmp_path)
 
-    messages = [
-        _msg("assistant", "a"),
-        _tool_result_msg("call_a", "r1"),
-        _tool_result_msg("call_b", "r2"),
-        _msg("assistant", "b"),
-    ]
-    assert safe_split_index(messages, 1) == 3
+    sealed_real = await seal_sync(store, messages, settings)
+
+    assert sealed_real is False, "ollama-down path returns False"
+    assert len(store.blocks) == 1
+    assert store.blocks[0].range_start == 0
+    assert store.blocks[0].range_end == 3
+    assert "truncation" in store.blocks[0].header.lower()
+    body = store.read_body(store.blocks[0])
+    assert "3 messages omitted" in body
 
 
-def test_safe_split_index_leaves_clean_boundary_alone():
-    from context_optimizer._core import safe_split_index
+@pytest.mark.asyncio
+async def test_seal_sync_returns_false_for_empty_session_key(tmp_path, monkeypatch):
+    """seal_sync is a no-op for the placeholder 'empty' session key."""
+    from context_optimizer.block_tower import seal_sync
+    from context_optimizer.block_tower.store import BlockStore
 
-    messages = [
-        _msg("user", "q"),
-        _msg("assistant", "a"),
-        _msg("user", "q2"),
-    ]
-    assert safe_split_index(messages, 2) == 2
+    BlockStore.reset_for_test()
+
+    settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
+    store = BlockStore.get_or_build("empty", tmp_path)
+
+    sealed = await seal_sync(store, [], settings)
+
+    assert sealed is False
+    assert store.blocks == []

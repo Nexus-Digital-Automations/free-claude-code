@@ -26,19 +26,19 @@ class ContextOptimizer:
     async def optimize(
         cls, request_data: Any, settings: Any, provider: Any
     ) -> tuple[Any, int]:
-        """Convert proxy types to dicts, run the package optimizer, convert back."""
+        """Convert proxy types to dicts, run the package optimizer, convert back.
+
+        `provider` is accepted for backward signature compatibility but no
+        longer used — the package owns its own Ollama-driven block tower
+        and does not call back into the upstream provider for compaction.
+        """
         from api.models.anthropic import Message
 
         pkg_settings = _PkgSettings(
             compact_threshold_tokens=settings.context_compact_threshold_tokens,
-            compact_soft_threshold_tokens=settings.context_compact_soft_threshold_tokens,
-            compact_deepseek_fallback_threshold_tokens=(
-                settings.context_compact_deepseek_fallback_threshold_tokens
-            ),
             max_thinking_turns=settings.context_max_thinking_turns,
             ollama_base_url=settings.ollama_base_url,
             ollama_model=settings.ollama_model,
-            prefix_cache_max_entries=settings.context_prefix_cache_max_entries,
             tier0_max_lines=settings.context_tier0_max_lines,
             tier0_head_lines=settings.context_tier0_head_lines,
             tier0_tail_lines=settings.context_tier0_tail_lines,
@@ -47,7 +47,6 @@ class ContextOptimizer:
             compaction_temperature=settings.context_compaction_temperature,
             context_compaction_keep_alive=settings.context_compaction_keep_alive,
             tokenizer_name=settings.context_tokenizer_model,
-            tier2_keep_recent_turns=settings.context_tier2_keep_recent_turns,
             tier0b_digest_enabled=settings.context_tier0b_digest_enabled,
             tier0b_digest_min_bytes=settings.context_tier0b_digest_min_bytes,
             tier0b_digest_timeout_seconds=settings.context_tier0b_digest_timeout_seconds,
@@ -56,8 +55,6 @@ class ContextOptimizer:
             tier0c_keep_recent_calls=settings.context_tier0c_keep_recent_calls,
             tier0d_digest_enabled=settings.context_tier0d_digest_enabled,
             tier0d_digest_min_bytes=settings.context_tier0d_digest_min_bytes,
-            context_cache_dir=getattr(settings, "context_cache_dir", None),
-            block_tower_enabled=getattr(settings, "context_block_tower_enabled", False),
             block_selection_mode=getattr(settings, "context_block_selection_mode", "selective"),
             block_seal_min_tail_tokens=getattr(settings, "context_block_seal_min_tail_tokens", 3_000),
             block_seal_min_requests=getattr(settings, "context_block_seal_min_requests", 4),
@@ -68,16 +65,11 @@ class ContextOptimizer:
         dict_messages = [m.model_dump() for m in request_data.messages]
         dict_system = _system_to_dicts(request_data.system)
         dict_tools = [t.model_dump() for t in request_data.tools] if request_data.tools else None
-        llm_provider = _make_provider(
-            provider, request_data.model, pkg_settings.compaction_max_tokens,
-            pkg_settings.compaction_temperature,
-        )
 
         out_messages, out_system, token_count = await _PkgOptimizer.optimize(
             messages=dict_messages,
             system=dict_system,
             settings=pkg_settings,
-            llm_provider=llm_provider,
             tools=dict_tools,
         )
 
@@ -109,15 +101,3 @@ def _dicts_to_system(system: Any) -> Any:
     return system
 
 
-def _make_provider(provider: Any, model: str, max_tokens: int, temperature: float):
-    """Build an async (prompt: str) -> str callable from the proxy's provider._client."""
-    async def call_llm(prompt: str) -> str:
-        resp = await provider._client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=False,
-        )
-        return resp.choices[0].message.content or ""
-    return call_llm

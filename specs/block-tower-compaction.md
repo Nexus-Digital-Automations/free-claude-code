@@ -124,6 +124,57 @@ block body (~500 tokens) and a one-line header (≤120 chars) in a single
 call, parsed from delimited sections. Two separate Ollama calls per
 seal would double latency for marginal quality gain.
 
+## Phase 2 — Tier 2 Removal + Sync Emergency Seal
+
+After Phase 1 shipped (`bc1a805`), the only remaining unique value of Tier 2
+was synchronous emergency compaction at the hard token threshold. Phase 2
+replaces it with a bounded `seal_sync` in the block tower and rips Tier 2
+out entirely.
+
+### Phase 2 Requirements
+
+**R11 — Sync emergency seal.** `block_tower/sealer.py` exports
+`seal_sync(store, messages, settings)` that calls Ollama under
+`asyncio.wait_for(timeout=12s)` and writes a real summary block on
+success or a deterministic placeholder block on timeout/failure.
+
+**R12 — Cold-start trigger.** `optimizer.py` Layer 0 calls `seal_sync`
+when `not store.blocks and tokens >= settings.compact_threshold_tokens`.
+The `compact_threshold_tokens` setting is repurposed (no longer Tier 2
+sync threshold).
+
+**R13 — Tier 2 deletion.** `tiers/tier2.py`, `cache.py` (PrefixCache),
+and the Tier 2-only halves of `prompts.py` and `_core.py`
+(`build_prompt`, `parse_response`, `apply_summary`, `safe_split_index`,
+`_SUMMARY_PREFIX`) are removed. Settings deleted at both the package
+and proxy levels: `compact_soft_threshold_tokens`,
+`compact_deepseek_fallback_threshold_tokens`, `tier2_keep_recent_turns`,
+`prefix_cache_max_entries`, `context_cache_dir`, `block_tower_enabled`.
+
+**R14 — Tail trim bug fix.** Layer 0 must trim `messages` to the tail
+past the latest existing block's `range_end` before forwarding. The
+Phase 1 code prepended block bodies to `system` but failed to trim the
+already-summarised messages from `messages`, double-paying tokens.
+
+### Phase 2 Acceptance Criteria
+
+- [x] **AC11**: `seal_sync` writes a real block when Ollama is reachable
+      and a placeholder block (containing "truncation" + N omitted)
+      when Ollama is unreachable. (Verified by
+      `test_seal_sync_writes_placeholder_when_ollama_unreachable`.)
+- [x] **AC12**: After deletion, `tier2.py`, `cache.py`,
+      `compact_soft_threshold_tokens`, `compact_deepseek_fallback_threshold_tokens`,
+      `tier2_keep_recent_turns`, `prefix_cache_max_entries`,
+      `context_cache_dir`, `block_tower_enabled` are absent from the
+      codebase (`grep -r` returns nothing).
+- [x] **AC13**: `ruff check` clean, `mypy` reports no new errors,
+      `pytest` 16/16 pass.
+- [x] **AC14**: Layer 0 trims `messages` to `messages[last_block.range_end:]`
+      after applying selected block bodies.
+
 ## Progress
 
-- 2026-05-05: Plan approved via ExitPlanMode. Spec drafted from plan.
+- 2026-05-05: Phase 1 plan approved via ExitPlanMode. Spec drafted from plan.
+- 2026-05-05: Phase 1 shipped in `bc1a805` (added Layer 0, kept Tier 2 as fallback).
+- 2026-05-05: Phase 2 plan approved (replace Tier 2 with sync emergency seal).
+- 2026-05-05: Phase 2 implementation complete; all checks green.

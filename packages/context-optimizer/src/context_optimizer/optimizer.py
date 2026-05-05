@@ -3,35 +3,31 @@
 Pipeline per request (layers run in order):
   Layer -1 (repo index, optional):
     git HEAD SHA → load/build stable prefix → cosine search → prepend to system
-  Layer 0  (block tower, optional):
-    derive session_key → load BlockStore → Ollama-select blocks →
-    prepend selected block bodies to system → schedule async seal of the
-    uncompacted tail when math says yes
-  Message tiers:
-    tier0 (NLP truncation) → tier0b/0c/0d (Ollama digests) → tier1 (thinking strip)
-    → prefix cache lookup → [tier2 compaction if needed]
+  Tiers 0/0b/0c/0d (free + Ollama digests on tool results, tool_use, pastes)
+  Tier 1 (thinking-block strip)
+  Token count
+  Layer 0  (block tower):
+    derive session_key → load BlockStore → if cold-start emergency, seal_sync
+    on the uncompacted tail → run Ollama selector → prepend selected block
+    bodies to system → trim messages to the tail past the latest block →
+    schedule async seal of any remaining tail when the math says yes →
+    final token recount
 
-When the block tower is enabled, Tier 2 (rolling-summary compaction) is
-bypassed — Layer 0 owns conversation-level compaction in that mode.
+WHY Layer 0 runs LAST: the block tower wants to make its inclusion decision
+against the post-cleanup messages so the selector and the seal prompt see
+exactly what the upstream model will see. The block-tower seal also wants
+the most accurate token count for its emergency check, which is only known
+after every other tier has run.
 
-WHY Layer -1 runs first: the system prompt prefix must be established before any
-message-level token counting so tier2 thresholds account for its size.
-
-WHY cache-first: tier0 hashes every tool result for dedup; on warm
-conversations that work is wasted when a cached prefix would have
-short-circuited the request. Hashing the raw messages costs ~µs.
-
-Does NOT own: individual tier logic, cache storage, Ollama management,
-token counting, repo indexing, block storage, or prompt construction —
-all delegated.
+Does NOT own: individual tier logic, Ollama management, token counting,
+repo indexing, block storage, or prompt construction — all delegated.
 Called by: any application code that imports context_optimizer.
-Calls: tiers/tier0, tiers/tier1, tiers/tier2, cache.PrefixCache,
-       token_counter.count_tokens, repo_index.RepoIndex (Layer -1),
-       block_tower (Layer 0) when enabled.
+Calls: tiers/tier0..1, token_counter.count_tokens,
+       repo_index.RepoIndex (Layer -1), block_tower (Layer 0).
 
 # @stable — external callers depend on ContextOptimizer.optimize() signature.
 # EXTENSION POINT: add new tiers inside optimize() between tier1 and the
-#   tier2 thresholds.
+#   block-tower step.
 """
 
 from __future__ import annotations
@@ -40,28 +36,16 @@ import asyncio
 import os
 import subprocess
 from collections.abc import Awaitable, Callable
-from typing import ClassVar
 
 from loguru import logger
 
-from .cache import PrefixCache
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier0b, tier0c, tier0d, tier1, tier2
+from .tiers import tier0, tier0b, tier0c, tier0d, tier1
 from .token_counter import count_tokens
-from ._core import content_hash
 
 LLMProvider = Callable[[str], Awaitable[str]]
 
 _DEFAULT_SETTINGS = ContextOptimizerSettings()
-
-# ── Cache-path resolution ──────────────────────────────────────────────
-# The persist-path is scoped to the working directory so two projects never
-# share cache entries.  Resolution order:
-#   1. Explicit settings.context_cache_dir (if non-None and non-empty).
-#   2. Git root of cwd → <git_root>/.claude/data/context-cache.json
-#   3. Bare cwd (not a git repo) → <cwd>/.claude/data/context-cache.json
-#   4. context_cache_dir="" disables persistence explicitly.
-# Counterpart: providers/common/context_optimizer.py maps from proxy settings.
 
 
 def _resolve_repo_root(settings: ContextOptimizerSettings) -> str:
@@ -131,43 +115,14 @@ def _prepend_block_tower(block_bodies: list[str], system: str | list | None) -> 
     return system
 
 
-def _resolve_cache_path(settings: ContextOptimizerSettings) -> str | None:
-    """Return the absolute cache file path, or None to disable persistence."""
-    if settings.context_cache_dir is not None:
-        # Explicitly set — even "" means "disable", anything else is a dir
-        if settings.context_cache_dir == "":
-            return None
-        return os.path.join(settings.context_cache_dir, "context-cache.json")
-    try:
-        r = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
-        )
-        root = r.stdout.strip() if r.returncode == 0 else os.getcwd()
-    except Exception:
-        root = os.getcwd()
-    cache_dir = os.path.join(root, ".claude", "data")
-    return os.path.join(cache_dir, "context-cache.json")
-
-
 class ContextOptimizer:
-    """Stateless entry point — all mutable state lives in the module-level
-    cache and tier2 inflight/semaphore sets.
+    """Stateless entry point. All persistent state lives in module-level
+    singletons (block_tower.store.BlockStore._by_session, repo_index
+    cache, sealer in-flight set).
 
-    Multiple simultaneous callers share the same cache (class-level),
-    which is safe because asyncio is single-threaded per process.
+    Multiple simultaneous callers share that state, which is safe because
+    asyncio is single-threaded per process.
     """
-
-    _cache: ClassVar[PrefixCache | None] = None
-
-    @classmethod
-    def _get_cache(cls, settings: ContextOptimizerSettings) -> PrefixCache:
-        if cls._cache is None or cls._cache._max_entries != settings.prefix_cache_max_entries:
-            persist_path = _resolve_cache_path(settings)
-            cls._cache = PrefixCache(
-                settings.prefix_cache_max_entries, persist_path=persist_path,
-            )
-        return cls._cache
 
     @classmethod
     async def optimize(
@@ -178,25 +133,23 @@ class ContextOptimizer:
         llm_provider: LLMProvider | None = None,
         tools: list | None = None,
     ) -> tuple[list[dict], str | list | None, int]:
-        """Apply all optimization tiers. Returns (messages, system, token_count).
+        """Apply all optimization layers. Returns (messages, system, token_count).
 
-        Never raises — failures degrade gracefully to the previous tier's result.
-        The returned token_count reflects the state after all optimizations.
+        Never raises — failures degrade gracefully to the previous layer's
+        result. The returned token_count reflects the state after every
+        applied layer.
 
-        llm_provider: async callable (prompt: str) -> str, used for Tier 2b
-        and as a fallback when Ollama is near-capacity. Pass None to disable
-        Tier 2b (Tier 0/1 and background Ollama still run).
+        llm_provider is no longer used by the package (block tower owns all
+        autocompaction via local Ollama). The parameter is preserved for
+        backward signature compatibility and may be removed in a follow-up.
         # @stable
         """
         if settings is None:
             settings = _DEFAULT_SETTINGS
 
-        cache = cls._get_cache(settings)
-
         # --- Layer -1: Repo index stable prefix + dynamic suffix ---
         # Lazy import so torch/networkx are never loaded when the feature is off.
         # run_in_executor wraps the synchronous build() to avoid blocking the loop.
-        # Counterpart: repo_index/index.py RepoIndex.get_or_build stores to disk.
         if settings.repo_index_enabled:
             try:
                 from .repo_index import RepoIndex  # noqa: PLC0415
@@ -220,47 +173,6 @@ class ContextOptimizer:
                     "REPO_INDEX: layer-1 failed, skipping — {}: {}", type(exc).__name__, exc
                 )
 
-        # --- Layer 0: Block tower (immutable compaction + selective inclusion) ---
-        # When enabled, owns conversation-level compaction and bypasses Tier 2.
-        # Counterpart: block_tower/ module. Whole layer is wrapped — any
-        # failure degrades to "no tower this request" so the live path is
-        # never blocked by storage / Ollama issues.
-        if settings.block_tower_enabled and settings.block_selection_mode != "off":
-            try:
-                from .block_tower import (  # noqa: PLC0415
-                    BlockStore,
-                    derive_session_key,
-                    schedule_seal_if_due,
-                    select_blocks,
-                )
-                from .block_tower.store import resolve_storage_dir  # noqa: PLC0415
-
-                repo_root = _resolve_repo_root(settings)
-                storage_dir = resolve_storage_dir(repo_root, settings.block_storage_dir)
-                session_key = derive_session_key(messages)
-                store = BlockStore.get_or_build(session_key, storage_dir)
-                store.increment_request_counter()
-
-                if store.blocks:
-                    last_user_text = _extract_last_user_text(messages)
-                    selected = await select_blocks(
-                        store.blocks, last_user_text, session_key, settings,
-                    )
-                    if selected:
-                        bodies = [store.read_body(b) for b in selected]
-                        system = _prepend_block_tower(bodies, system)
-                        logger.info(
-                            "BLOCK_TOWER: layer0 applied session={} included={} of={}",
-                            session_key[:7], len(selected), len(store.blocks),
-                        )
-
-                schedule_seal_if_due(store, messages, settings)
-            except Exception as exc:
-                logger.warning(
-                    "BLOCK_TOWER: layer-0 failed, skipping — {}: {}",
-                    type(exc).__name__, exc,
-                )
-
         # --- Tier 0: free NLP cleanup ---
         before_bytes = sum(
             len(str(m.get("content", ""))) for m in messages
@@ -282,7 +194,7 @@ class ContextOptimizer:
         # Runs after Tier 0's mechanical truncation. Ollama produces a
         # content-aware summary for tool_results above the byte threshold;
         # the digest is content-hashed so identical inputs always yield the
-        # same bytes, keeping DeepSeek's prefix cache hot.
+        # same bytes, keeping upstream prefix caches hot.
         msgs = await tier0b.apply(msgs, settings)
 
         # --- Tier 0c: Ollama tool_use input compaction ---
@@ -300,59 +212,31 @@ class ContextOptimizer:
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
         sys = system
 
-        # --- Prefix cache lookup (post-cleanup) ---
-        # Tier 2a stores summaries computed *after* the cleanup tiers ran,
-        # so the cache key is post-cleanup. Looking up here (after tier0/0b/0c/0d/1
-        # have run) is what makes Tier 2a's background work actually findable.
-        # Counterpart: tier2._do_ollama_call / compact_sync stores via cache.store.
-        cache_result = cache.lookup(msgs, sys)
-        if cache_result is not None:
-            msgs, sys = cache_result
-            tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
-            return msgs, sys, tokens
-
         tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
 
-        # --- Tier 2: LLM compaction ---
-        # Bypassed when the block tower is enabled — Layer 0 owns
-        # conversation-level compaction in that mode and double-compacting
-        # would re-summarise content the tower already froze.
-        tier2_active = not settings.block_tower_enabled
-        if tier2_active and tokens >= settings.compact_threshold_tokens and llm_provider is not None:
-            logger.info(
-                "CONTEXT_OPT: triggering sync compaction tokens={} threshold={} msgs={}",
-                tokens, settings.compact_threshold_tokens, len(msgs),
-            )
-            result = await tier2.compact_sync(msgs, sys, settings, llm_provider, cache)
-            if result is not None:
-                new_msgs, new_sys = result
-                new_tokens = count_tokens(new_msgs, new_sys, tools, tokenizer_name=settings.tokenizer_name)
-                logger.info(
-                    "CONTEXT_OPT: compacted {} -> {} messages, tokens {} -> {}",
-                    len(msgs), len(new_msgs), tokens, new_tokens,
+        # --- Layer 0: Block tower ---
+        # The tower is the sole conversation-level compaction path. It runs
+        # last so the selector, the optional emergency seal, and the tail
+        # trim all see the post-cleanup state the upstream model will see.
+        # Whole layer is wrapped — any failure degrades to "no tower this
+        # request" so the live path is never blocked by storage / Ollama
+        # issues.
+        if settings.block_selection_mode != "off":
+            try:
+                msgs, sys, tokens = await _apply_block_tower(
+                    messages, msgs, sys, tokens, tools, settings,
                 )
-                msgs, sys, tokens = new_msgs, new_sys, new_tokens
-
-        elif tier2_active and tokens >= settings.compact_soft_threshold_tokens:
-            near_hard = tokens >= settings.compact_deepseek_fallback_threshold_tokens
-            inflight_key = content_hash(msgs)
-            tier2.schedule_background(
-                msgs, settings, llm_provider, cache, inflight_key,
-                use_provider_fallback=near_hard,
-            )
+            except Exception as exc:
+                logger.warning(
+                    "BLOCK_TOWER: layer-0 failed, skipping — {}: {}",
+                    type(exc).__name__, exc,
+                )
 
         return msgs, sys, tokens
 
     @classmethod
     def _reset_for_test(cls) -> None:
         # @internal — tests/conftest uses this to isolate cache state.
-        # Clear the on-disk cache file so the next PrefixCache creation
-        # starts with an empty store instead of picking up stale entries
-        # from a previous test run.
-        if cls._cache is not None:
-            cls._cache.clear()
-        cls._cache = None
-        tier2.reset_for_test()
         tier0b.reset_for_test()
         tier0c.reset_for_test()
         tier0d.reset_for_test()
@@ -366,3 +250,70 @@ class ContextOptimizer:
             BlockStore.reset_for_test()
         except ImportError:
             pass
+
+
+async def _apply_block_tower(
+    raw_messages: list[dict],
+    msgs: list[dict],
+    sys: str | list | None,
+    tokens: int,
+    tools: list | None,
+    settings: ContextOptimizerSettings,
+) -> tuple[list[dict], str | list | None, int]:
+    """Run the block tower against the post-cleanup state.
+
+    Returns the (msgs, system, tokens) that the upstream model should see.
+    Never raises — caller wraps in try/except as a final defensive layer.
+
+    `raw_messages` is used only to derive a stable session_key from the
+    first user message; all sealing and tail trimming happens against `msgs`.
+    """
+    from .block_tower import (  # noqa: PLC0415
+        BlockStore,
+        derive_session_key,
+        schedule_seal_if_due,
+        seal_sync,
+        select_blocks,
+    )
+    from .block_tower.store import resolve_storage_dir  # noqa: PLC0415
+
+    repo_root = _resolve_repo_root(settings)
+    storage_dir = resolve_storage_dir(repo_root, settings.block_storage_dir)
+    session_key = derive_session_key(raw_messages)
+    store = BlockStore.get_or_build(session_key, storage_dir)
+    store.increment_request_counter()
+
+    # Cold-start emergency: tokens already over the hard threshold and the
+    # tower has zero blocks yet. The async seal scheduled below would only
+    # help future requests; we need synchronous compaction to bring THIS
+    # request under budget. seal_sync writes either a real Ollama summary or
+    # a deterministic placeholder block on timeout.
+    if not store.blocks and tokens >= settings.compact_threshold_tokens:
+        await seal_sync(store, msgs, settings)
+
+    # Schedule a background seal of whatever tail remains. Noop if math
+    # threshold not met or a seal is already in flight for this session.
+    schedule_seal_if_due(store, msgs, settings)
+
+    if not store.blocks:
+        return msgs, sys, tokens
+
+    # Apply blocks: select per-request, prepend bodies, trim message tail
+    # past the latest existing block. Trimming is what makes the tower
+    # save tokens — without it, summarised messages still ride along verbatim.
+    last_user_text = _extract_last_user_text(msgs)
+    selected = await select_blocks(store.blocks, last_user_text, session_key, settings)
+    if selected:
+        bodies = [store.read_body(b) for b in selected]
+        sys = _prepend_block_tower(bodies, sys)
+        logger.info(
+            "BLOCK_TOWER: layer0 applied session={} included={} of={}",
+            session_key[:7], len(selected), len(store.blocks),
+        )
+
+    tail_start = store.blocks[-1].range_end
+    if tail_start > 0:
+        msgs = msgs[tail_start:]
+        tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
+
+    return msgs, sys, tokens

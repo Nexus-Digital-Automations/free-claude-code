@@ -9,7 +9,7 @@ depends on this module's internals.
 from __future__ import annotations
 
 from .selector import select_blocks
-from .sealer import schedule_seal_if_due, should_seal
+from .sealer import schedule_seal_if_due, seal_sync, should_seal
 from .session_key import derive_session_key
 from .store import BlockHandle, BlockStore
 
@@ -18,6 +18,7 @@ __all__ = [
     "BlockStore",
     "derive_session_key",
     "schedule_seal_if_due",
+    "seal_sync",
     "select_blocks",
     "should_seal",
 ]

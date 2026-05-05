@@ -1,9 +1,10 @@
-"""Owns: ContextOptimizerSettings — configuration for all optimizer tiers.
+"""Owns: ContextOptimizerSettings — configuration for all optimizer layers.
 
-Does NOT own: defaults validation (caller's responsibility), provider
-configuration (caller constructs llm_provider callable separately).
+Does NOT own: defaults validation (caller's responsibility) or provider
+configuration (the package owns its own Ollama client; no llm_provider
+needed by callers any more).
 
-Called by: optimizer.py, tiers/tier2.py, ollama_supervisor.py.
+Called by: optimizer.py, ollama_supervisor.py, block_tower/*.
 """
 
 from __future__ import annotations
@@ -18,26 +19,14 @@ class ContextOptimizerSettings:
     All thresholds are in approximate token counts (tiktoken cl100k_base).
     """
 
-    # ---- Tier 2 thresholds ----
-    # Lowered from the original 65/50/25 anchor on observation that real proxy
-    # traffic clusters bimodally (5-25K and 98-102K). Combined with the
-    # tier2_keep_recent_turns floor below, lower thresholds catch sessions
-    # earlier without risking recent-turn loss in the resulting summary.
+    # ---- Cold-start emergency seal ----
+    # Repurposed from the old Tier 2 hard threshold. When the very first
+    # request of a session arrives already over this size and no blocks
+    # have been sealed yet, the block tower runs a synchronous seal_sync
+    # (bounded by sealer._SYNC_SEAL_TIMEOUT_SECONDS) before the request
+    # is forwarded. Counterpart: block_tower/sealer.py:seal_sync.
     compact_threshold_tokens: int = 55_000
-    """Hard limit — sync blocking compaction via llm_provider."""
-
-    compact_soft_threshold_tokens: int = 18_000
-    """Soft limit — schedule background Ollama compaction. Earlier trigger
-    gives the warm Ollama call (~3-5s) time to finish before the next request
-    races the hard limit."""
-
-    compact_deepseek_fallback_threshold_tokens: int = 40_000
-    """Mid-point — near hard limit; Ollama fallback to llm_provider if busy."""
-
-    tier2_keep_recent_turns: int = 8
-    """Quality floor — Tier 2 must preserve at least this many trailing
-    messages verbatim. Clamps the LLM-chosen split_index so a too-aggressive
-    summary cannot collapse the most recent context the next turn depends on."""
+    """Tail-token threshold above which a cold-start emergency seal fires."""
 
     # ---- Tier 1 ----
     max_thinking_turns: int = 0
@@ -47,16 +36,6 @@ class ContextOptimizerSettings:
     A relative 'keep last N' rule would mutate the prefix every time a new
     turn arrived (the position of 'last N' shifts). Set higher only if
     downstream tooling needs to inspect intermediate reasoning."""
-
-    # ---- Prefix cache ----
-    prefix_cache_max_entries: int = 100
-
-    context_cache_dir: str | None = None
-    """Directory for the persisted prefix-cache file.  ``None`` auto-resolves
-    from the current working directory (git root → ``.claude/data/``, or
-    ``cwd/.claude/data/`` if not a git repo).  Set to an explicit path to
-    override location.  The cache file is always named ``context-cache.json``.
-    Set to ``""`` to disable persistence entirely."""
 
     # ---- Ollama ----
     ollama_base_url: str = "http://localhost:11434/v1"
@@ -118,10 +97,17 @@ class ContextOptimizerSettings:
 
     # ---- Compaction prompt ----
     render_preview_chars: int = 2_000
-    """Max chars shown per message in the compaction prompt preview."""
+    """Max chars shown per message in the block-tower seal prompt preview."""
 
     compaction_max_tokens: int = 4_000
+    """Output token cap for tier0b/0c/0d Ollama digest calls. Block-tower
+    seals compute their own cap from block_target_summary_tokens."""
+
     compaction_temperature: float = 0.3
+    """Temperature for the block-tower seal Ollama call and tier0b/0c/0d
+    digest calls. Low so summaries of identical inputs come back byte-stable
+    across requests."""
+
     context_compaction_keep_alive: str = "30m"
     """Ollama keep_alive value for model warm-up calls."""
 
@@ -174,17 +160,15 @@ class ContextOptimizerSettings:
     repo_index_repomix_extra_args: list[str] = field(default_factory=list)
     """Additional CLI arguments passed verbatim to repomix."""
 
-    # ---- Block tower (Layer 0 immutable compaction) ----
-    # Counterpart: block_tower/ module. When enabled, Tier 2's rolling-summary
-    # path is bypassed — the tower handles all conversation-level compaction
-    # by sealing immutable blocks per uncompacted-tail and selectively
-    # including them per request via Ollama relevance scoring.
-    block_tower_enabled: bool = False
-    """Opt-in. False keeps Tier 2's existing rolling-summary path intact."""
-
+    # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
+    # Counterpart: block_tower/ module. The tower seals immutable blocks
+    # from the uncompacted tail, prunes irrelevant blocks per-request via
+    # an Ollama selector, and runs a synchronous emergency seal if tokens
+    # exceed compact_threshold_tokens before any block is sealed.
     block_selection_mode: str = "selective"
     """One of {"all", "selective", "off"}.
-    "off"        — Layer 0 disabled even when block_tower_enabled is True.
+    "off"        — Layer 0 disabled entirely (no tower load, no seal, no
+                   prefix prepend). Only the per-message tiers run.
     "all"        — load tower, include every block (no Ollama selector call).
     "selective"  — Ollama scores each block against the current message and
                    omits blocks deemed irrelevant. Falls back to "all" on any
