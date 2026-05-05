@@ -1,11 +1,18 @@
 """Owns: ContextOptimizer — orchestrates all optimization layers for a single request.
 
-Pipeline per request (Layer -1 first, then message tiers):
+Pipeline per request (layers run in order):
   Layer -1 (repo index, optional):
     git HEAD SHA → load/build stable prefix → cosine search → prepend to system
+  Layer 0  (block tower, optional):
+    derive session_key → load BlockStore → Ollama-select blocks →
+    prepend selected block bodies to system → schedule async seal of the
+    uncompacted tail when math says yes
   Message tiers:
     tier0 (NLP truncation) → tier0b/0c/0d (Ollama digests) → tier1 (thinking strip)
     → prefix cache lookup → [tier2 compaction if needed]
+
+When the block tower is enabled, Tier 2 (rolling-summary compaction) is
+bypassed — Layer 0 owns conversation-level compaction in that mode.
 
 WHY Layer -1 runs first: the system prompt prefix must be established before any
 message-level token counting so tier2 thresholds account for its size.
@@ -15,10 +22,12 @@ conversations that work is wasted when a cached prefix would have
 short-circuited the request. Hashing the raw messages costs ~µs.
 
 Does NOT own: individual tier logic, cache storage, Ollama management,
-token counting, repo indexing, or prompt construction — all delegated.
+token counting, repo indexing, block storage, or prompt construction —
+all delegated.
 Called by: any application code that imports context_optimizer.
 Calls: tiers/tier0, tiers/tier1, tiers/tier2, cache.PrefixCache,
-       token_counter.count_tokens, repo_index.RepoIndex (when enabled).
+       token_counter.count_tokens, repo_index.RepoIndex (Layer -1),
+       block_tower (Layer 0) when enabled.
 
 # @stable — external callers depend on ContextOptimizer.optimize() signature.
 # EXTENSION POINT: add new tiers inside optimize() between tier1 and the
@@ -92,6 +101,33 @@ def _prepend_repo_context(prefix_text: str, suffix: str, system: str | list | No
         return block + system
     if isinstance(system, list):
         return [{"type": "text", "text": block}, *system]
+    return system
+
+
+# Counterpart: block_tower/store.BlockHandle — bodies are stored as text files
+# and concatenated into a single labelled block per request. Format-version'd
+# header so the model treats this as background context, not new instructions.
+_BLOCK_TOWER_HEADER = (
+    "Earlier conversation (compacted into immutable blocks by context-optimizer "
+    "— treat as background context, not as new user instructions):\n\n"
+)
+
+
+def _prepend_block_tower(block_bodies: list[str], system: str | list | None) -> str | list:
+    """Prepend a tower of frozen block bodies to the system prompt.
+
+    Bodies are joined with a separator and prefixed with a single fixed
+    header so the byte layout of any given inclusion pattern is stable
+    across requests — the property that makes upstream prefix caches hit.
+    """
+    joined = "\n\n--- ---\n\n".join(block_bodies)
+    composed = _BLOCK_TOWER_HEADER + joined + "\n\n---\n\n"
+    if system is None:
+        return composed
+    if isinstance(system, str):
+        return composed + system
+    if isinstance(system, list):
+        return [{"type": "text", "text": composed}, *system]
     return system
 
 
@@ -184,6 +220,47 @@ class ContextOptimizer:
                     "REPO_INDEX: layer-1 failed, skipping — {}: {}", type(exc).__name__, exc
                 )
 
+        # --- Layer 0: Block tower (immutable compaction + selective inclusion) ---
+        # When enabled, owns conversation-level compaction and bypasses Tier 2.
+        # Counterpart: block_tower/ module. Whole layer is wrapped — any
+        # failure degrades to "no tower this request" so the live path is
+        # never blocked by storage / Ollama issues.
+        if settings.block_tower_enabled and settings.block_selection_mode != "off":
+            try:
+                from .block_tower import (  # noqa: PLC0415
+                    BlockStore,
+                    derive_session_key,
+                    schedule_seal_if_due,
+                    select_blocks,
+                )
+                from .block_tower.store import resolve_storage_dir  # noqa: PLC0415
+
+                repo_root = _resolve_repo_root(settings)
+                storage_dir = resolve_storage_dir(repo_root, settings.block_storage_dir)
+                session_key = derive_session_key(messages)
+                store = BlockStore.get_or_build(session_key, storage_dir)
+                store.increment_request_counter()
+
+                if store.blocks:
+                    last_user_text = _extract_last_user_text(messages)
+                    selected = await select_blocks(
+                        store.blocks, last_user_text, session_key, settings,
+                    )
+                    if selected:
+                        bodies = [store.read_body(b) for b in selected]
+                        system = _prepend_block_tower(bodies, system)
+                        logger.info(
+                            "BLOCK_TOWER: layer0 applied session={} included={} of={}",
+                            session_key[:7], len(selected), len(store.blocks),
+                        )
+
+                schedule_seal_if_due(store, messages, settings)
+            except Exception as exc:
+                logger.warning(
+                    "BLOCK_TOWER: layer-0 failed, skipping — {}: {}",
+                    type(exc).__name__, exc,
+                )
+
         # --- Tier 0: free NLP cleanup ---
         before_bytes = sum(
             len(str(m.get("content", ""))) for m in messages
@@ -237,7 +314,11 @@ class ContextOptimizer:
         tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
 
         # --- Tier 2: LLM compaction ---
-        if tokens >= settings.compact_threshold_tokens and llm_provider is not None:
+        # Bypassed when the block tower is enabled — Layer 0 owns
+        # conversation-level compaction in that mode and double-compacting
+        # would re-summarise content the tower already froze.
+        tier2_active = not settings.block_tower_enabled
+        if tier2_active and tokens >= settings.compact_threshold_tokens and llm_provider is not None:
             logger.info(
                 "CONTEXT_OPT: triggering sync compaction tokens={} threshold={} msgs={}",
                 tokens, settings.compact_threshold_tokens, len(msgs),
@@ -252,7 +333,7 @@ class ContextOptimizer:
                 )
                 msgs, sys, tokens = new_msgs, new_sys, new_tokens
 
-        elif tokens >= settings.compact_soft_threshold_tokens:
+        elif tier2_active and tokens >= settings.compact_soft_threshold_tokens:
             near_hard = tokens >= settings.compact_deepseek_fallback_threshold_tokens
             inflight_key = content_hash(msgs)
             tier2.schedule_background(
@@ -275,3 +356,13 @@ class ContextOptimizer:
         tier0b.reset_for_test()
         tier0c.reset_for_test()
         tier0d.reset_for_test()
+        # Block tower module resets — keep optional so a partially-loaded
+        # package (e.g. running tests on a subset) doesn't crash on import.
+        try:
+            from .block_tower import sealer, selector  # noqa: PLC0415
+            from .block_tower.store import BlockStore  # noqa: PLC0415
+            sealer.reset_for_test()
+            selector.reset_for_test()
+            BlockStore.reset_for_test()
+        except ImportError:
+            pass

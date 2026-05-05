@@ -319,6 +319,60 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ---- Block tower (Layer 0 immutable compaction) ----
+    # Counterpart: packages/context-optimizer/.../block_tower/. When enabled,
+    # bypasses Tier 2 — the tower owns conversation-level compaction.
+    context_block_tower_enabled: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_BLOCK_TOWER_ENABLED",
+        description=(
+            "Enable Layer 0 immutable block tower. Seals uncompacted tail into "
+            "frozen blocks; selects per-request via Ollama relevance scorer. "
+            "When True, the rolling-summary Tier 2 path is bypassed. Disable "
+            "with CONTEXT_BLOCK_TOWER_ENABLED=0 to fall back to Tier 2."
+        ),
+    )
+    context_block_selection_mode: str = Field(
+        default="selective",
+        validation_alias="CONTEXT_BLOCK_SELECTION_MODE",
+        description=(
+            "One of {'selective', 'all', 'off'}. 'selective' = Ollama picks "
+            "relevant blocks per request; 'all' = always include every block "
+            "(skips selector call); 'off' = disable Layer 0 even when enabled."
+        ),
+    )
+    context_block_seal_min_tail_tokens: int = Field(
+        default=3_000,
+        validation_alias="CONTEXT_BLOCK_SEAL_MIN_TAIL_TOKENS",
+        description=(
+            "Minimum uncompacted-tail tokens before sealing is mathematically "
+            "profitable. Below this, the one-time write cost dominates the "
+            "recurring savings."
+        ),
+    )
+    context_block_seal_min_requests: int = Field(
+        default=4,
+        validation_alias="CONTEXT_BLOCK_SEAL_MIN_REQUESTS",
+        description=(
+            "Minimum requests since the last seal before a new block may be "
+            "sealed. Protects short sessions from one-shot compactions whose "
+            "cost would never amortise."
+        ),
+    )
+    context_block_target_summary_tokens: int = Field(
+        default=500,
+        validation_alias="CONTEXT_BLOCK_TARGET_SUMMARY_TOKENS",
+        description="Target body size for a sealed block, passed to the seal prompt.",
+    )
+    context_block_storage_dir: str | None = Field(
+        default=None,
+        validation_alias="CONTEXT_BLOCK_STORAGE_DIR",
+        description=(
+            "Directory under which <session_key>/block-NNNN.txt files live. "
+            "None = <repo_root>/.context/blocks/ auto-derived from cwd."
+        ),
+    )
+
     preflight_token_count: bool = Field(
         default=False,
         validation_alias="PREFLIGHT_TOKEN_COUNT",

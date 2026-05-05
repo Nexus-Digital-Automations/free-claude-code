@@ -173,3 +173,37 @@ class ContextOptimizerSettings:
 
     repo_index_repomix_extra_args: list[str] = field(default_factory=list)
     """Additional CLI arguments passed verbatim to repomix."""
+
+    # ---- Block tower (Layer 0 immutable compaction) ----
+    # Counterpart: block_tower/ module. When enabled, Tier 2's rolling-summary
+    # path is bypassed — the tower handles all conversation-level compaction
+    # by sealing immutable blocks per uncompacted-tail and selectively
+    # including them per request via Ollama relevance scoring.
+    block_tower_enabled: bool = False
+    """Opt-in. False keeps Tier 2's existing rolling-summary path intact."""
+
+    block_selection_mode: str = "selective"
+    """One of {"all", "selective", "off"}.
+    "off"        — Layer 0 disabled even when block_tower_enabled is True.
+    "all"        — load tower, include every block (no Ollama selector call).
+    "selective"  — Ollama scores each block against the current message and
+                   omits blocks deemed irrelevant. Falls back to "all" on any
+                   Ollama failure (preserves request reliability)."""
+
+    block_seal_min_tail_tokens: int = 3_000
+    """Tail token count below which sealing a new block is mathematically
+    unprofitable (the one-time write cost dominates the recurring token
+    savings). Counterpart: block_tower/sealer.should_seal."""
+
+    block_seal_min_requests: int = 4
+    """Minimum requests since the last seal (or session start) before a new
+    block may be sealed. Protects short sessions from a one-shot compaction
+    whose cost would never be amortised over future requests."""
+
+    block_target_summary_tokens: int = 500
+    """Target body size for a sealed block. Passed to the sealing prompt as
+    a budget — actual size will vary ± ~20%."""
+
+    block_storage_dir: str | None = None
+    """Directory under which `<session_key>/block-NNNN.txt` files live.
+    None = <repo_root>/.context/blocks/ (auto-derived from cwd's git root)."""

@@ -35,3 +35,9 @@ providers/common/context_optimizer.py
 # out locally for algorithm reference only. It is gitignored, never deployed,
 # and not part of this project's codebase. All findings within it are irrelevant.
 aider/**
+
+# mypy's compiled JSON cache directory. Files inside are stub-introspection
+# artifacts whose filenames reference stdlib module names (which the scanner
+# misreads as code-evaluation patterns). Cache is regenerated on every type
+# check, gitignored, and never deployed. All findings within it are irrelevant.
+**/.mypy_cache/**

@@ -57,6 +57,12 @@ class ContextOptimizer:
             tier0d_digest_enabled=settings.context_tier0d_digest_enabled,
             tier0d_digest_min_bytes=settings.context_tier0d_digest_min_bytes,
             context_cache_dir=getattr(settings, "context_cache_dir", None),
+            block_tower_enabled=getattr(settings, "context_block_tower_enabled", False),
+            block_selection_mode=getattr(settings, "context_block_selection_mode", "selective"),
+            block_seal_min_tail_tokens=getattr(settings, "context_block_seal_min_tail_tokens", 3_000),
+            block_seal_min_requests=getattr(settings, "context_block_seal_min_requests", 4),
+            block_target_summary_tokens=getattr(settings, "context_block_target_summary_tokens", 500),
+            block_storage_dir=getattr(settings, "context_block_storage_dir", None),
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]
