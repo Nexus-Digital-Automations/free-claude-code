@@ -16,6 +16,18 @@ dependencies = [
     "loguru>=0.7",
 ]
 
+[project.optional-dependencies]
+# Heavy ML deps for Layer -1 repo indexing — opt-in to keep base install lightweight.
+# Install with: pip install context-optimizer[repo-index]
+repo-index = [
+    "networkx>=3.0",
+    "numpy>=1.24",
+    "sentence-transformers>=2.2",
+    "gitpython>=3.1",
+    "tree-sitter>=0.22",
+    "tree-sitter-language-pack>=0.0.4",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/context_optimizer"]
 

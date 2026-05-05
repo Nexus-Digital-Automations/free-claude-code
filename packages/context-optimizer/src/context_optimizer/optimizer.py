@@ -1,22 +1,24 @@
-"""Owns: ContextOptimizer — orchestrates all four tiers for a single request.
+"""Owns: ContextOptimizer — orchestrates all optimization layers for a single request.
 
-Tier pipeline per request:
-  raw -> prefix cache check (cheapest first) ->
-    on hit:  return cached truncation immediately, skipping tier0/tier1
-    on miss: tier0 (NLP) -> tier1 (thinking strip) ->
-      tokens >= hard_threshold:  await tier2.compact_sync (blocking)
-      tokens >= soft_threshold:  tier2.schedule_background (fire-and-forget)
-      else:                      return as-is
+Pipeline per request (Layer -1 first, then message tiers):
+  Layer -1 (repo index, optional):
+    git HEAD SHA → load/build stable prefix → cosine search → prepend to system
+  Message tiers:
+    tier0 (NLP truncation) → tier0b/0c/0d (Ollama digests) → tier1 (thinking strip)
+    → prefix cache lookup → [tier2 compaction if needed]
+
+WHY Layer -1 runs first: the system prompt prefix must be established before any
+message-level token counting so tier2 thresholds account for its size.
 
 WHY cache-first: tier0 hashes every tool result for dedup; on warm
 conversations that work is wasted when a cached prefix would have
 short-circuited the request. Hashing the raw messages costs ~µs.
 
 Does NOT own: individual tier logic, cache storage, Ollama management,
-token counting, or prompt construction — all delegated to submodules.
+token counting, repo indexing, or prompt construction — all delegated.
 Called by: any application code that imports context_optimizer.
 Calls: tiers/tier0, tiers/tier1, tiers/tier2, cache.PrefixCache,
-       token_counter.count_tokens.
+       token_counter.count_tokens, repo_index.RepoIndex (when enabled).
 
 # @stable — external callers depend on ContextOptimizer.optimize() signature.
 # EXTENSION POINT: add new tiers inside optimize() between tier1 and the
@@ -25,6 +27,9 @@ Calls: tiers/tier0, tiers/tier1, tiers/tier2, cache.PrefixCache,
 
 from __future__ import annotations
 
+import asyncio
+import os
+import subprocess
 from collections.abc import Awaitable, Callable
 from typing import ClassVar
 
@@ -40,6 +45,74 @@ LLMProvider = Callable[[str], Awaitable[str]]
 
 _DEFAULT_SETTINGS = ContextOptimizerSettings()
 
+# ── Cache-path resolution ──────────────────────────────────────────────
+# The persist-path is scoped to the working directory so two projects never
+# share cache entries.  Resolution order:
+#   1. Explicit settings.context_cache_dir (if non-None and non-empty).
+#   2. Git root of cwd → <git_root>/.claude/data/context-cache.json
+#   3. Bare cwd (not a git repo) → <cwd>/.claude/data/context-cache.json
+#   4. context_cache_dir="" disables persistence explicitly.
+# Counterpart: providers/common/context_optimizer.py maps from proxy settings.
+
+
+def _resolve_repo_root(settings: ContextOptimizerSettings) -> str:
+    if settings.repo_index_root:
+        return settings.repo_index_root
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _extract_last_user_text(messages: list[dict]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(
+                    b.get("text", "") for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+    return ""
+
+
+def _prepend_repo_context(prefix_text: str, suffix: str, system: str | list | None) -> str | list:
+    block = prefix_text + ("\n\n---\n\n" + suffix if suffix else "") + "\n\n---\n\n"
+    if system is None:
+        return block
+    if isinstance(system, str):
+        return block + system
+    if isinstance(system, list):
+        return [{"type": "text", "text": block}, *system]
+    return system
+
+
+def _resolve_cache_path(settings: ContextOptimizerSettings) -> str | None:
+    """Return the absolute cache file path, or None to disable persistence."""
+    if settings.context_cache_dir is not None:
+        # Explicitly set — even "" means "disable", anything else is a dir
+        if settings.context_cache_dir == "":
+            return None
+        return os.path.join(settings.context_cache_dir, "context-cache.json")
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+        root = r.stdout.strip() if r.returncode == 0 else os.getcwd()
+    except Exception:
+        root = os.getcwd()
+    cache_dir = os.path.join(root, ".claude", "data")
+    return os.path.join(cache_dir, "context-cache.json")
+
 
 class ContextOptimizer:
     """Stateless entry point — all mutable state lives in the module-level
@@ -54,7 +127,10 @@ class ContextOptimizer:
     @classmethod
     def _get_cache(cls, settings: ContextOptimizerSettings) -> PrefixCache:
         if cls._cache is None or cls._cache._max_entries != settings.prefix_cache_max_entries:
-            cls._cache = PrefixCache(settings.prefix_cache_max_entries)
+            persist_path = _resolve_cache_path(settings)
+            cls._cache = PrefixCache(
+                settings.prefix_cache_max_entries, persist_path=persist_path,
+            )
         return cls._cache
 
     @classmethod
@@ -81,14 +157,32 @@ class ContextOptimizer:
 
         cache = cls._get_cache(settings)
 
-        # --- Prefix cache (cheapest path first) ---
-        # Hashing raw messages avoids paying tier0+tier1 cost on warm
-        # conversations whose prefix is already cached.
-        cache_result = cache.lookup(messages, system)
-        if cache_result is not None:
-            msgs, sys = cache_result
-            tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
-            return msgs, sys, tokens
+        # --- Layer -1: Repo index stable prefix + dynamic suffix ---
+        # Lazy import so torch/networkx are never loaded when the feature is off.
+        # run_in_executor wraps the synchronous build() to avoid blocking the loop.
+        # Counterpart: repo_index/index.py RepoIndex.get_or_build stores to disk.
+        if settings.repo_index_enabled:
+            try:
+                from .repo_index import RepoIndex  # noqa: PLC0415
+                repo_root = _resolve_repo_root(settings)
+                loop = asyncio.get_running_loop()
+                loaded = await loop.run_in_executor(
+                    None, RepoIndex.get_or_build, repo_root, settings
+                )
+                if loaded is not None:
+                    last_user_text = _extract_last_user_text(messages)
+                    results = loaded.query(last_user_text, top_k=settings.repo_index_query_top_k)
+                    system = _prepend_repo_context(
+                        loaded.prefix_text, loaded.format_suffix(results), system
+                    )
+                    logger.info(
+                        "REPO_INDEX: prefix_applied prefix_bytes={} suffix_chunks={} commit={}",
+                        len(loaded.prefix_text), len(results), loaded.commit_hash[:7],
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "REPO_INDEX: layer-1 failed, skipping — {}: {}", type(exc).__name__, exc
+                )
 
         # --- Tier 0: free NLP cleanup ---
         before_bytes = sum(
@@ -129,6 +223,17 @@ class ContextOptimizer:
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
         sys = system
 
+        # --- Prefix cache lookup (post-cleanup) ---
+        # Tier 2a stores summaries computed *after* the cleanup tiers ran,
+        # so the cache key is post-cleanup. Looking up here (after tier0/0b/0c/0d/1
+        # have run) is what makes Tier 2a's background work actually findable.
+        # Counterpart: tier2._do_ollama_call / compact_sync stores via cache.store.
+        cache_result = cache.lookup(msgs, sys)
+        if cache_result is not None:
+            msgs, sys = cache_result
+            tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
+            return msgs, sys, tokens
+
         tokens = count_tokens(msgs, sys, tools, tokenizer_name=settings.tokenizer_name)
 
         # --- Tier 2: LLM compaction ---
@@ -159,7 +264,12 @@ class ContextOptimizer:
 
     @classmethod
     def _reset_for_test(cls) -> None:
-        # @internal — tests/conftest uses this to isolate cache state
+        # @internal — tests/conftest uses this to isolate cache state.
+        # Clear the on-disk cache file so the next PrefixCache creation
+        # starts with an empty store instead of picking up stale entries
+        # from a previous test run.
+        if cls._cache is not None:
+            cls._cache.clear()
         cls._cache = None
         tier2.reset_for_test()
         tier0b.reset_for_test()

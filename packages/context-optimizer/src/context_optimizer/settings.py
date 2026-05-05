@@ -8,7 +8,7 @@ Called by: optimizer.py, tiers/tier2.py, ollama_supervisor.py.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -50,6 +50,13 @@ class ContextOptimizerSettings:
 
     # ---- Prefix cache ----
     prefix_cache_max_entries: int = 100
+
+    context_cache_dir: str | None = None
+    """Directory for the persisted prefix-cache file.  ``None`` auto-resolves
+    from the current working directory (git root → ``.claude/data/``, or
+    ``cwd/.claude/data/`` if not a git repo).  Set to an explicit path to
+    override location.  The cache file is always named ``context-cache.json``.
+    Set to ``""`` to disable persistence entirely."""
 
     # ---- Ollama ----
     ollama_base_url: str = "http://localhost:11434/v1"
@@ -124,3 +131,33 @@ class ContextOptimizerSettings:
     (e.g. 'deepseek-ai/DeepSeek-V3') for accurate per-provider token counting.
     Names containing '/' are treated as HuggingFace model IDs and loaded via
     the `tokenizers` library; all other names are passed to tiktoken."""
+
+    # ---- Repo index (Layer -1 stable prefix) ----
+    # Disabled by default so existing callers see no behaviour change.
+    # Enable by setting repo_index_enabled=True; auto-detects git root from cwd.
+    repo_index_enabled: bool = False
+    repo_index_root: str | None = None
+    """Absolute path to the git repo root to index. None = auto-detect from cwd."""
+
+    repo_index_context_dir: str | None = None
+    """Directory for .context/ files. None = <git_root>/.context/."""
+
+    repo_index_top_n: int = 20
+    """Number of top-ranked files to include in the Repomix render."""
+
+    repo_index_chunk_size_tokens: int = 200
+    repo_index_chunk_overlap_tokens: int = 20
+
+    repo_index_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    """HuggingFace model ID for chunk embeddings (sentence-transformers compatible)."""
+
+    repo_index_query_top_k: int = 10
+    repo_index_repomix_timeout: float = 120.0
+    repo_index_poll_interval_seconds: float = 30.0
+    repo_index_watch_enabled: bool = False
+
+    repo_index_max_prefix_tokens: int = 8_000
+    """Soft cap on stable prefix tokens; build() reduces top_n if exceeded. 0 = no cap."""
+
+    repo_index_repomix_extra_args: list[str] = field(default_factory=list)
+    """Additional CLI arguments passed verbatim to repomix."""
