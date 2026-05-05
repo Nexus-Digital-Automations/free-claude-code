@@ -117,6 +117,25 @@ def schedule_seal_if_due(
     task = asyncio.create_task(_run_seal(store, tail_start, tail, settings))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(_log_background_seal_exception)
+
+
+def _log_background_seal_exception(task: asyncio.Task) -> None:
+    """Surface uncaught exceptions from background seals.
+
+    asyncio's default behaviour swallows exceptions in fire-and-forget tasks
+    until the task is GC'd; without this callback a broken Ollama client or
+    parser bug would silently disable sealing in production. Cancellation is
+    expected (process shutdown) and not logged.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning(
+            "BLOCK_TOWER: background_seal_failed reason={} {}",
+            type(exc).__name__, exc,
+        )
 
 
 async def _run_seal(

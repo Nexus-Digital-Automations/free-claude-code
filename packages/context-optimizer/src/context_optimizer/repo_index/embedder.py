@@ -242,6 +242,18 @@ def load_index(output_dir: str, commit_hash: str) -> tuple[str, list[Chunk], np.
         return None
 
     chunks = [Chunk(**c) for c in raw["chunks"]]
+
+    # Detect partial-write or external-edit corruption: vectors and chunks
+    # must agree on count, otherwise query() would silently return chunks[i]
+    # for an index i drawn from an unrelated array. Caller treats None as
+    # "rebuild" so the inconsistency self-heals on the next request.
+    if vectors.shape[0] != len(chunks):
+        logger.warning(
+            "REPO_INDEX: embedder shape_mismatch hash={} vectors={} chunks={} — rebuilding",
+            commit_hash[:7], vectors.shape[0], len(chunks),
+        )
+        return None
+
     manifest = IndexManifest(
         commit_hash=raw["commit_hash"],
         repo_root=raw["repo_root"],
@@ -258,9 +270,11 @@ def prune_old_indexes(output_dir: str, keep: int = 3) -> None:
     """Delete all but the `keep` most-recent index triplets (by .json mtime)."""
     if not os.path.isdir(output_dir):
         return
+    # Secondary key by name keeps the eviction order deterministic when two
+    # files share an mtime (common on fast successive builds).
     json_files = sorted(
         Path(output_dir).glob("repo-*.json"),
-        key=lambda p: p.stat().st_mtime,
+        key=lambda p: (p.stat().st_mtime, p.name),
         reverse=True,
     )
     for old_json in json_files[keep:]:

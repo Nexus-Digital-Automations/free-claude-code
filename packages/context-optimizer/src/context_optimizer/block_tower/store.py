@@ -104,7 +104,14 @@ class BlockStore:
     def _load_from_disk(self) -> None:
         if not self.session_dir.is_dir():
             return
-        for entry in sorted(os.listdir(self.session_dir)):
+        # Race: session_dir can disappear between is_dir() and listdir() if a
+        # parallel cleanup deletes it (e.g. test teardown). Treat as "no
+        # blocks loaded" rather than crashing the request.
+        try:
+            entries = sorted(os.listdir(self.session_dir))
+        except FileNotFoundError:
+            return
+        for entry in entries:
             match = _BLOCK_FILE_RE.match(entry)
             if not match:
                 continue

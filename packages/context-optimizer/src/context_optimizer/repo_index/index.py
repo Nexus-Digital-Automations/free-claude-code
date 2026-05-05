@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -28,8 +29,12 @@ from .git_watcher import get_head_tree_sha
 
 # ── Module-level hot-path cache ────────────────────────────────────────────
 # Keyed on tree SHA (HEAD^{tree}), not commit SHA — stable across --amend/rebase/reword.
+# _build_lock serialises get_or_build() so two concurrent run_in_executor calls
+# (Layer -1 in optimizer.py is dispatched to the default thread pool) can't both
+# miss the cache and both invoke the 20-60s build pipeline against the same SHA.
 _loaded_index: LoadedIndex | None = None
 _loaded_tree_hash: str | None = None
+_build_lock = threading.Lock()
 
 
 @dataclass
@@ -99,19 +104,27 @@ class RepoIndex:
                 logger.debug("REPO_INDEX: get_or_build no git repo at root={}", repo_root)
                 return None
 
+            # Fast path: in-memory hit doesn't need the lock.
             if _loaded_tree_hash == sha and _loaded_index is not None:
                 return _loaded_index
 
-            loaded = cls.load(repo_root, settings)
-            if loaded is not None:
-                _loaded_index = loaded
-                _loaded_tree_hash = sha
-                return loaded
+            # Serialise miss path so two concurrent threads can't both invoke
+            # the 20-60s build for the same SHA. The second waiter re-checks
+            # the cache after acquiring the lock.
+            with _build_lock:
+                if _loaded_tree_hash == sha and _loaded_index is not None:
+                    return _loaded_index
 
-            built = cls.build(repo_root, settings)
-            _loaded_index = built
-            _loaded_tree_hash = sha
-            return built
+                loaded = cls.load(repo_root, settings)
+                if loaded is not None:
+                    _loaded_index = loaded
+                    _loaded_tree_hash = sha
+                    return loaded
+
+                built = cls.build(repo_root, settings)
+                _loaded_index = built
+                _loaded_tree_hash = sha
+                return built
 
         except Exception as exc:
             logger.warning("REPO_INDEX: get_or_build failed root={} reason={}: {}", repo_root, type(exc).__name__, exc)
@@ -310,5 +323,24 @@ def _enforce_token_cap(
         top_files = ranker.get_top_n_files(ranked, len(top_files) - 5)
         prefix_text = _render(repo_root, top_files, settings)
         logger.info("REPO_INDEX: prefix_cap_reduce top_n={} tokens~={}", len(top_files), count(prefix_text))
+
+    # Coarse loop floors at 5 files. If those 5 still exceed the ceiling
+    # (large monorepo files), shrink one at a time down to a single file.
+    # Beyond that, accept the overrun — a single hub file is what was asked
+    # for, and the alternative is shipping nothing.
+    while count(prefix_text) > token_ceiling and len(top_files) > 1:
+        top_files = ranker.get_top_n_files(ranked, len(top_files) - 1)
+        prefix_text = _render(repo_root, top_files, settings)
+        logger.info(
+            "REPO_INDEX: prefix_cap_fine_reduce top_n={} tokens~={}",
+            len(top_files), count(prefix_text),
+        )
+
+    if count(prefix_text) > token_ceiling:
+        logger.warning(
+            "REPO_INDEX: prefix_cap_overrun top_n={} tokens~={} ceiling={} — "
+            "single hub file alone exceeds budget",
+            len(top_files), count(prefix_text), token_ceiling,
+        )
 
     return prefix_text, top_files

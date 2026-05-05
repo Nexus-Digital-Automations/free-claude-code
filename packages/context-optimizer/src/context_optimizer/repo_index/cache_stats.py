@@ -79,4 +79,10 @@ def _extract_attr(obj: object, name: str) -> int | None:
     try:
         return int(val)
     except (TypeError, ValueError):
+        # Surface coerce failures so cache-stats holes don't disappear silently
+        # if a provider ever returns e.g. a string in a numeric token field.
+        logger.debug(
+            "REPO_INDEX: cache_stats coerce_failed attr={} value_type={}",
+            name, type(val).__name__,
+        )
         return None

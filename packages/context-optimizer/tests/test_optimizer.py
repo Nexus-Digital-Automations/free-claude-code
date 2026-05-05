@@ -863,3 +863,91 @@ def test_repo_index_ac8_cache_stats_handles_both_provider_shapes():
     tracker3.record_api_usage(SimpleNamespace(), provider="unknown")
     assert tracker3.stats.prompt_cache_hit_tokens == 0
     assert tracker3.stats.prompt_cache_miss_tokens == 0
+
+
+# ---- Regression tests for the 2026-05-05 audit fixes ----
+
+
+def test_load_index_returns_none_on_chunk_vector_shape_mismatch(tmp_path):
+    """Regression: B3 — load_index must reject on-disk indexes whose vectors
+    array and chunks list disagree on count, otherwise query() returns wrong
+    chunks for a given cosine-search index. Caller treats None as 'rebuild'.
+    """
+    pytest.importorskip("sentence_transformers")
+    pytest.importorskip("numpy")
+
+    import numpy as np
+
+    from context_optimizer.repo_index import embedder as embedder_module
+    from context_optimizer.repo_index._types import Chunk, IndexManifest
+
+    sha = "deadbeef" * 5  # plausible 40-char-ish git sha
+    out = tmp_path
+    chunks = [
+        Chunk(source_file="a.py", chunk_index=0, text="alpha", token_count=1),
+        Chunk(source_file="a.py", chunk_index=1, text="beta", token_count=1),
+    ]
+    # Write a 5-vector matrix on purpose, against the 2-chunk manifest.
+    vectors = np.zeros((5, 8), dtype=np.float32)
+    manifest = IndexManifest(
+        commit_hash=sha,
+        repo_root=str(tmp_path),
+        top_n=1,
+        ranked_files=["a.py"],
+        chunks=[],
+        build_timestamp_utc="2026-05-05T00:00:00+00:00",
+        embedding_model="stub",
+    )
+    embedder_module.save_index("PREFIX", chunks, vectors, manifest, str(out), sha)
+
+    result = embedder_module.load_index(str(out), sha)
+
+    assert result is None, "shape mismatch must produce a None (=rebuild) signal"
+
+
+def test_token_cap_shrinks_below_five_files_when_one_exceeds_budget(monkeypatch):
+    """Regression: B1 — when even 5 files exceed the ceiling, the cap loop's
+    >5 floor used to leave the prefix oversized. The fine loop must continue
+    shrinking down to 1 file before giving up.
+    """
+    pytest.importorskip("numpy")  # only used transitively; cheap
+
+    from context_optimizer.repo_index import index as index_module
+    from context_optimizer.repo_index import ranker as ranker_module
+    from context_optimizer.settings import ContextOptimizerSettings
+
+    # Stub render: each file contributes 5_000 chars (~1_250 tokens). With a
+    # ceiling of 2_500 tokens we need to shrink to a single file (5_000 chars
+    # → ~1_250 tokens).
+    def fake_render(_repo_root, files, _settings):
+        return "x" * (len(files) * 5_000)
+
+    # Stub get_top_n_files to just slice an in-memory list.
+    fake_ranked = [object()] * 10  # opaque tokens
+
+    def fake_get_top_n(_ranked, n):
+        return ["f%d.py" % i for i in range(min(n, 10))]
+
+    monkeypatch.setattr(index_module, "_render", fake_render)
+    monkeypatch.setattr(ranker_module, "get_top_n_files", fake_get_top_n)
+
+    settings = ContextOptimizerSettings()
+    initial_files = fake_get_top_n(fake_ranked, 10)
+    initial_prefix = fake_render("/repo", initial_files, settings)
+
+    final_prefix, final_files = index_module._enforce_token_cap(
+        repo_root="/repo",
+        top_files=initial_files,
+        ranked=fake_ranked,
+        prefix_text=initial_prefix,
+        settings=settings,
+        token_ceiling=1500,  # forces shrink past the 5-file floor
+    )
+
+    # Strict <5: pre-fix code stopped at 5 (the coarse-loop floor). Asserting
+    # ≤5 would let the broken path through. final_prefix is unused — the
+    # token-count assertion is implicit in the file-count drop because
+    # _enforce_token_cap only shrinks while the prefix exceeds the ceiling.
+    assert len(final_files) < 5, "fine loop must dive past the 5-file floor"
+    assert len(final_files) >= 1, "must always return at least one file"
+    _ = final_prefix  # captured for the contract; deliberately unasserted
