@@ -622,3 +622,244 @@ def test_ac10_ruff_clean_on_block_tower_module():
         text=True,
     )
     assert result.returncode == 0, f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+
+
+# ---- Repo-index acceptance criteria (repo-index.md AC1-AC8) ----
+#
+# AC2-AC5 require the optional `[repo-index]` extras (sentence-transformers,
+# tree-sitter, networkx, gitpython). They use `pytest.importorskip` so the
+# suite stays green on a base install and exercises fully when extras are
+# present (e.g. `pip install -e .[repo-index]`).
+
+
+def test_repo_index_ac1_public_imports_work():
+    """AC1: `from context_optimizer.repo_index import RepoIndex, LoadedIndex, CacheStatsTracker` works."""
+    from context_optimizer.repo_index import (
+        CacheStatsTracker,
+        LoadedIndex,
+        RepoIndex,
+    )
+
+    assert RepoIndex is not None
+    assert LoadedIndex is not None
+    assert CacheStatsTracker is not None
+
+
+def _init_git_repo_with_files(repo_dir: Path, files: dict[str, str]) -> None:
+    """Helper for AC2/AC3/AC5: scaffold a tiny git repo with deterministic content."""
+    import subprocess
+
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    for rel, content in files.items():
+        f = repo_dir / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(content)
+    env = {
+        "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@t",
+        "PATH": __import__("os").environ.get("PATH", ""),
+    }
+    for cmd in [
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "init"],
+    ]:
+        subprocess.run(cmd, cwd=repo_dir, check=True, env=env, capture_output=True)
+
+
+def test_repo_index_ac2_build_returns_non_empty_prefix(tmp_path):
+    """AC2: RepoIndex.build(force=True) returns a LoadedIndex with non-empty prefix_text."""
+    pytest.importorskip("sentence_transformers")
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("networkx")
+
+    from context_optimizer.repo_index import RepoIndex
+
+    repo = tmp_path / "demo"
+    _init_git_repo_with_files(repo, {
+        "src/foo.py": "def foo():\n    return 'foo'\n",
+        "src/bar.py": "def bar():\n    return 'bar'\n",
+    })
+    settings = ContextOptimizerSettings(
+        repo_index_enabled=True,
+        repo_index_root=str(repo),
+        repo_index_top_n=2,
+    )
+
+    loaded = RepoIndex.build(str(repo), settings, force=True)
+
+    assert loaded is not None
+    assert loaded.prefix_text, "prefix_text must be non-empty"
+    assert loaded.tree_hash, "tree_hash must be set"
+
+
+def test_repo_index_ac3_second_build_no_force_is_fast(tmp_path):
+    """AC3: RepoIndex.build() on same commit without force returns in < 200ms (disk cache hit)."""
+    pytest.importorskip("sentence_transformers")
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("networkx")
+
+    import time
+
+    from context_optimizer.repo_index import RepoIndex
+
+    repo = tmp_path / "demo"
+    _init_git_repo_with_files(repo, {
+        "a.py": "x = 1\n",
+        "b.py": "y = 2\n",
+    })
+    settings = ContextOptimizerSettings(
+        repo_index_enabled=True,
+        repo_index_root=str(repo),
+        repo_index_top_n=2,
+    )
+
+    RepoIndex.build(str(repo), settings, force=True)  # warm cache
+    start = time.perf_counter()
+    loaded = RepoIndex.build(str(repo), settings)  # no force ⇒ should hit disk cache
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert loaded is not None
+    assert elapsed_ms < 200, f"second build took {elapsed_ms:.0f}ms, expected < 200ms"
+
+
+def test_repo_index_ac4_query_returns_results(tmp_path):
+    """AC4: LoadedIndex.query() returns a non-empty results list."""
+    pytest.importorskip("sentence_transformers")
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("networkx")
+
+    from context_optimizer.repo_index import RepoIndex
+
+    repo = tmp_path / "demo"
+    _init_git_repo_with_files(repo, {
+        "cache.py": "class PrefixCache:\n    '''Holds prefix bytes.'''\n    pass\n",
+        "main.py": "from cache import PrefixCache\n",
+    })
+    settings = ContextOptimizerSettings(
+        repo_index_enabled=True,
+        repo_index_root=str(repo),
+        repo_index_top_n=2,
+    )
+
+    loaded = RepoIndex.build(str(repo), settings, force=True)
+    results = loaded.query("how does the cache work?", top_k=5)
+
+    assert results, "query must return at least one chunk"
+
+
+def test_repo_index_ac5_disk_artifacts_written(tmp_path):
+    """AC5: build() writes .context/repo-<hash>.{txt,npy,json} atomically."""
+    pytest.importorskip("sentence_transformers")
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("networkx")
+
+    from context_optimizer.repo_index import RepoIndex
+
+    repo = tmp_path / "demo"
+    _init_git_repo_with_files(repo, {"only.py": "z = 0\n"})
+    settings = ContextOptimizerSettings(
+        repo_index_enabled=True,
+        repo_index_root=str(repo),
+        repo_index_top_n=1,
+    )
+
+    loaded = RepoIndex.build(str(repo), settings, force=True)
+    sha = loaded.tree_hash
+    context = repo / ".context"
+
+    assert (context / f"repo-{sha}.txt").is_file(), "repo-<hash>.txt missing"
+    assert (context / f"repo-{sha}.npy").is_file(), "repo-<hash>.npy missing"
+    assert (context / f"repo-{sha}.json").is_file(), "repo-<hash>.json missing"
+
+
+@pytest.mark.asyncio
+async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(tmp_path, monkeypatch):
+    """AC6: ContextOptimizer.optimize() with repo_index_enabled=True prepends prefix to system prompt."""
+    import numpy as np
+
+    from context_optimizer.repo_index._types import Chunk, IndexManifest
+    from context_optimizer.repo_index.index import LoadedIndex
+
+    fake_prefix = "## STABLE-REPO-PREFIX ##\nfile contents here.\n"
+    fake_loaded = LoadedIndex(
+        tree_hash="deadbeef",
+        prefix_text=fake_prefix,
+        chunks=[Chunk(source_file="fake.py", chunk_index=0, text="snippet", token_count=2)],
+        vectors=np.zeros((1, 8), dtype=np.float32),
+        manifest=IndexManifest(
+            commit_hash="deadbeef",
+            repo_root=str(tmp_path),
+            top_n=1,
+            ranked_files=["fake.py"],
+            chunks=[],
+            build_timestamp_utc="2026-05-05T00:00:00+00:00",
+            embedding_model="stub",
+        ),
+    )
+
+    def fake_get_or_build(_root, _settings):
+        return fake_loaded
+
+    # Patch on the index module so the inline-import in optimizer.py still hits our fake.
+    from context_optimizer.repo_index import index as index_module
+    monkeypatch.setattr(index_module.RepoIndex, "get_or_build", classmethod(lambda cls, *a, **k: fake_get_or_build(*a, **k)))
+    # Stub query so we don't need an embedding model loaded.
+    monkeypatch.setattr(LoadedIndex, "query", lambda self, q, top_k=10: [])
+
+    settings = ContextOptimizerSettings(
+        repo_index_enabled=True,
+        repo_index_root=str(tmp_path),
+    )
+    messages = [_msg("user", "hello")]
+
+    _msgs, new_system, _tokens = await ContextOptimizer.optimize(
+        messages=messages, system="You are a bot.", settings=settings,
+    )
+
+    assert "STABLE-REPO-PREFIX" in (new_system if isinstance(new_system, str) else str(new_system))
+
+
+def test_repo_index_ac7_ruff_clean_on_repo_index_module():
+    """AC7: ruff check exits 0 on the repo_index module."""
+    import subprocess
+
+    pkg_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["ruff", "check", "src/context_optimizer/repo_index/"],
+        cwd=pkg_root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+
+
+def test_repo_index_ac8_cache_stats_handles_both_provider_shapes():
+    """AC8: CacheStatsTracker.record_api_usage handles DeepSeek- and Anthropic-shaped usage objects."""
+    from types import SimpleNamespace
+
+    from context_optimizer.repo_index import CacheStatsTracker
+
+    # DeepSeek/OpenAI shape: nested prompt_tokens_details.cached_tokens
+    tracker = CacheStatsTracker(request_id="r1")
+    deepseek_usage = SimpleNamespace(
+        prompt_tokens_details=SimpleNamespace(cached_tokens=120),
+    )
+    tracker.record_api_usage(deepseek_usage, provider="deepseek")
+    assert tracker.stats.prompt_cache_hit_tokens == 120
+
+    # Anthropic shape: top-level cache_read_input_tokens / cache_creation_input_tokens
+    tracker2 = CacheStatsTracker(request_id="r2")
+    anthropic_usage = SimpleNamespace(
+        cache_read_input_tokens=200,
+        cache_creation_input_tokens=50,
+    )
+    tracker2.record_api_usage(anthropic_usage, provider="anthropic")
+    assert tracker2.stats.prompt_cache_hit_tokens == 200
+    assert tracker2.stats.prompt_cache_miss_tokens == 50
+
+    # Neither shape ⇒ silent no-op (defensive)
+    tracker3 = CacheStatsTracker(request_id="r3")
+    tracker3.record_api_usage(SimpleNamespace(), provider="unknown")
+    assert tracker3.stats.prompt_cache_hit_tokens == 0
+    assert tracker3.stats.prompt_cache_miss_tokens == 0

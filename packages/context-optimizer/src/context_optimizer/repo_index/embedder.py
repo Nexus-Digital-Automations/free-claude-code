@@ -289,8 +289,13 @@ def _atomic_write_text(path: str, text: str) -> None:
 
 
 def _atomic_write_npy(path: str, array: np.ndarray) -> None:
+    # np.save() auto-appends '.npy' when given a string path that doesn't end
+    # in '.npy', so writing to "foo.npy.tmp" would actually produce
+    # "foo.npy.tmp.npy" and the rename below would fail. Pass a binary file
+    # handle to suppress the auto-suffix.
     tmp = f"{path}.tmp"
-    np.save(tmp, array)
+    with open(tmp, "wb") as f:
+        np.save(f, array)
     os.rename(tmp, path)
 
 

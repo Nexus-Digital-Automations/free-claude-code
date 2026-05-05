@@ -1,6 +1,6 @@
 ---
 title: Block Tower — Immutable Compaction with Selective Inclusion
-status: planning
+status: completed
 created: 2026-05-05
 ---
 
