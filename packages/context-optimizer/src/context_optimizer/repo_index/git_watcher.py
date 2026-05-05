@@ -1,7 +1,7 @@
-"""Owns: git HEAD tracking — get_head_sha() pure function and GitWatcher async poller.
+"""Owns: git HEAD tracking — get_head_tree_sha() pure function and GitWatcher async poller.
 
 Does NOT own: repo indexing, file parsing, or LLM calls.
-Called by: repo_index/index.py (get_head_sha), optimizer.py (optional GitWatcher start/stop).
+Called by: repo_index/index.py (get_head_tree_sha), optimizer.py (optional GitWatcher start/stop).
 Calls: subprocess (git), gitpython (optional), asyncio.
 """
 
@@ -14,8 +14,13 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 
 
-def get_head_sha(repo_root: str) -> str | None:
-    """Return the full 40-char commit SHA of HEAD, or None if not a git repo or HEAD is unborn.
+def get_head_tree_sha(repo_root: str) -> str | None:
+    """Return the full 40-char tree SHA of HEAD, or None if not a git repo or HEAD is unborn.
+
+    Returns the tree hash (git rev-parse HEAD^{tree}), NOT the commit hash.
+    WHY tree hash: stable across --amend, rebase, reword — any operation that changes
+    commit metadata without changing file contents produces the same tree SHA, so the
+    repo-index cache stays hot without a rebuild.
 
     Pure function — no caching, no side effects.
     Tries GitPython first (richer error info), falls back to subprocess git.
@@ -26,17 +31,17 @@ def get_head_sha(repo_root: str) -> str | None:
 
         try:
             repo = Repo(repo_root, search_parent_directories=False)
-            return repo.head.commit.hexsha
+            return repo.head.commit.tree.hexsha
         except (InvalidGitRepositoryError, NoSuchPathError, ValueError):
             pass
         except Exception as exc:
-            logger.debug("REPO_INDEX: gitpython head_sha failed root={} reason={}", repo_root, exc)
+            logger.debug("REPO_INDEX: gitpython tree_sha failed root={} reason={}", repo_root, exc)
     except ImportError:
         pass
 
     try:
         result = subprocess.run(
-            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            ["git", "-C", repo_root, "rev-parse", "HEAD^{tree}"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -45,7 +50,7 @@ def get_head_sha(repo_root: str) -> str | None:
             sha = result.stdout.strip()
             return sha or None
     except Exception as exc:
-        logger.debug("REPO_INDEX: subprocess head_sha failed root={} reason={}", repo_root, exc)
+        logger.debug("REPO_INDEX: subprocess tree_sha failed root={} reason={}", repo_root, exc)
 
     return None
 
@@ -73,7 +78,7 @@ class GitWatcher:
     async def start(self) -> None:
         if self._task is not None:
             return
-        self._last_sha = get_head_sha(self._repo_root)
+        self._last_sha = get_head_tree_sha(self._repo_root)
         self._task = asyncio.create_task(self._poll_loop(), name="git-watcher")
         logger.info(
             "REPO_INDEX: git_watcher started root={} sha={}",
@@ -96,7 +101,7 @@ class GitWatcher:
         while True:
             await asyncio.sleep(self._poll_interval)
             try:
-                sha = get_head_sha(self._repo_root)
+                sha = get_head_tree_sha(self._repo_root)
                 if sha and sha != self._last_sha:
                     logger.info(
                         "REPO_INDEX: git_watcher commit_change old={} new={}",

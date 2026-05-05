@@ -176,8 +176,8 @@ class ContextOptimizer:
                         loaded.prefix_text, loaded.format_suffix(results), system
                     )
                     logger.info(
-                        "REPO_INDEX: prefix_applied prefix_bytes={} suffix_chunks={} commit={}",
-                        len(loaded.prefix_text), len(results), loaded.commit_hash[:7],
+                        "REPO_INDEX: prefix_applied prefix_bytes={} suffix_chunks={} tree={}",
+                        len(loaded.prefix_text), len(results), loaded.tree_hash[:7],
                     )
             except Exception as exc:
                 logger.warning(

@@ -5,8 +5,8 @@ rendering (renderer), or embedding (embedder) — delegates all of those.
 Called by: optimizer.py (get_or_build via run_in_executor).
 Calls: git_watcher, tagger, ranker, renderer, embedder, subprocess (git ls-files).
 
-Module-level singleton (_loaded_index / _loaded_commit_hash) caches the active LoadedIndex
-in memory so get_or_build() returns in microseconds on the hot path (same commit, already
+Module-level singleton (_loaded_index / _loaded_tree_hash) caches the active LoadedIndex
+in memory so get_or_build() returns in microseconds on the hot path (same tree, already
 loaded). build() is synchronous so callers can wrap it in run_in_executor without an event
 loop inside the thread.
 """
@@ -24,22 +24,22 @@ from loguru import logger
 from ..settings import ContextOptimizerSettings
 from . import embedder, ranker, renderer, tagger
 from ._types import Chunk, IndexManifest
-from .git_watcher import get_head_sha
+from .git_watcher import get_head_tree_sha
 
 # ── Module-level hot-path cache ────────────────────────────────────────────
-# Avoids disk I/O on every request when the commit hasn't changed.
+# Keyed on tree SHA (HEAD^{tree}), not commit SHA — stable across --amend/rebase/reword.
 _loaded_index: LoadedIndex | None = None
-_loaded_commit_hash: str | None = None
+_loaded_tree_hash: str | None = None
 
 
 @dataclass
 class LoadedIndex:
     """In-memory representation of a fully built index for one commit. Immutable after creation.
 
-    # @stable — optimizer.py depends on query() and format_suffix() signatures.
+    # @stable — optimizer.py depends on query(), format_suffix(), and tree_hash.
     """
 
-    commit_hash: str
+    tree_hash: str          # git tree SHA (HEAD^{tree}), stable across --amend/rebase/reword
     prefix_text: str        # frozen Repomix render — the stable system-prompt prefix
     chunks: list[Chunk]
     vectors: np.ndarray     # shape (N, embedding_dim), unit-normalised float32
@@ -92,25 +92,25 @@ class RepoIndex:
         Returns None only if repo_root is not a git repo.
         Never raises — failures are logged and return None so callers degrade gracefully.
         """
-        global _loaded_index, _loaded_commit_hash
+        global _loaded_index, _loaded_tree_hash
         try:
-            sha = get_head_sha(repo_root)
+            sha = get_head_tree_sha(repo_root)
             if sha is None:
                 logger.debug("REPO_INDEX: get_or_build no git repo at root={}", repo_root)
                 return None
 
-            if _loaded_commit_hash == sha and _loaded_index is not None:
+            if _loaded_tree_hash == sha and _loaded_index is not None:
                 return _loaded_index
 
             loaded = cls.load(repo_root, settings)
             if loaded is not None:
                 _loaded_index = loaded
-                _loaded_commit_hash = sha
+                _loaded_tree_hash = sha
                 return loaded
 
             built = cls.build(repo_root, settings)
             _loaded_index = built
-            _loaded_commit_hash = sha
+            _loaded_tree_hash = sha
             return built
 
         except Exception as exc:
@@ -127,7 +127,7 @@ class RepoIndex:
 
         Returns None if no index exists for the current commit (normal on first run).
         """
-        sha = get_head_sha(repo_root)
+        sha = get_head_tree_sha(repo_root)
         if sha is None:
             return None
         context_dir = _resolve_context_dir(repo_root, settings)
@@ -135,8 +135,8 @@ class RepoIndex:
         if result is None:
             return None
         prefix_text, chunks, vectors, manifest = result
-        logger.info("REPO_INDEX: loaded from disk hash={} chunks={}", sha[:7], len(chunks))
-        return LoadedIndex(commit_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+        logger.info("REPO_INDEX: loaded from disk tree={} chunks={}", sha[:7], len(chunks))
+        return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
 
     @classmethod
     def build(
@@ -155,7 +155,7 @@ class RepoIndex:
         Never returns None — raises on unrecoverable failure.
         # @stable
         """
-        sha = get_head_sha(repo_root)
+        sha = get_head_tree_sha(repo_root)
         if sha is None:
             raise RuntimeError(f"Not a git repo or no commits: {repo_root}")
 
@@ -165,8 +165,8 @@ class RepoIndex:
             existing = embedder.load_index(context_dir, sha)
             if existing is not None:
                 prefix_text, chunks, vectors, manifest = existing
-                logger.info("REPO_INDEX: build cache_hit hash={}", sha[:7])
-                return LoadedIndex(commit_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+                logger.info("REPO_INDEX: build cache_hit tree={}", sha[:7])
+                return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
 
         file_paths = _list_tracked_files(repo_root)
         if not file_paths:
@@ -176,7 +176,7 @@ class RepoIndex:
         token_ceiling = _compute_token_ceiling(settings, n_tracked)
         effective_top_n = _compute_effective_top_n(settings, n_tracked)
         logger.info(
-            "REPO_INDEX: build start hash={} tracked={} mass_target={} top_n={} token_ceiling={}",
+            "REPO_INDEX: build start tree={} tracked={} mass_target={} top_n={} token_ceiling={}",
             sha[:7], n_tracked, settings.repo_index_pagerank_mass_target,
             effective_top_n, token_ceiling,
         )
@@ -202,7 +202,7 @@ class RepoIndex:
         vectors = embedder.embed_chunks(chunks, model_name=settings.repo_index_embedding_model)
 
         manifest = IndexManifest(
-            commit_hash=sha,
+            commit_hash=sha,  # IndexManifest.commit_hash is a JSON key on disk — kept as-is
             repo_root=repo_root,
             top_n=len(top_files),
             ranked_files=top_files,
@@ -213,8 +213,8 @@ class RepoIndex:
         embedder.save_index(prefix_text, chunks, vectors, manifest, context_dir, sha)
         embedder.prune_old_indexes(context_dir, keep=3)
 
-        logger.info("REPO_INDEX: build done hash={} files={} chunks={}", sha[:7], len(top_files), len(chunks))
-        return LoadedIndex(commit_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+        logger.info("REPO_INDEX: build done tree={} files={} chunks={}", sha[:7], len(top_files), len(chunks))
+        return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
