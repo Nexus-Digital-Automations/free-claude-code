@@ -32,7 +32,7 @@ from loguru import logger
 
 from .cache import PrefixCache
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier0b, tier1, tier2
+from .tiers import tier0, tier0b, tier0c, tier0d, tier1, tier2
 from .token_counter import count_tokens
 from ._core import content_hash
 
@@ -114,6 +114,17 @@ class ContextOptimizer:
         # same bytes, keeping DeepSeek's prefix cache hot.
         msgs = await tier0b.apply(msgs, settings)
 
+        # --- Tier 0c: Ollama tool_use input compaction ---
+        # Old assistant tool_use blocks with large input dicts (Edit, Write,
+        # MultiEdit) get their input replaced by a digest. Recent calls are
+        # preserved verbatim so the model can still reference its latest args.
+        msgs = await tier0c.apply(msgs, settings)
+
+        # --- Tier 0d: Ollama long-user-paste digest ---
+        # Historical user-message text blocks above the high byte threshold
+        # get digested. The active (last) user message is always skipped.
+        msgs = await tier0d.apply(msgs, settings)
+
         # --- Tier 1: thinking-block strip ---
         msgs = tier1.apply(msgs, settings.max_thinking_turns)
         sys = system
@@ -152,3 +163,5 @@ class ContextOptimizer:
         cls._cache = None
         tier2.reset_for_test()
         tier0b.reset_for_test()
+        tier0c.reset_for_test()
+        tier0d.reset_for_test()

@@ -51,6 +51,11 @@ class ContextOptimizer:
             tier0b_digest_enabled=settings.context_tier0b_digest_enabled,
             tier0b_digest_min_bytes=settings.context_tier0b_digest_min_bytes,
             tier0b_digest_timeout_seconds=settings.context_tier0b_digest_timeout_seconds,
+            tier0c_digest_enabled=settings.context_tier0c_digest_enabled,
+            tier0c_digest_min_bytes=settings.context_tier0c_digest_min_bytes,
+            tier0c_keep_recent_calls=settings.context_tier0c_keep_recent_calls,
+            tier0d_digest_enabled=settings.context_tier0d_digest_enabled,
+            tier0d_digest_min_bytes=settings.context_tier0d_digest_min_bytes,
         )
 
         dict_messages = [m.model_dump() for m in request_data.messages]

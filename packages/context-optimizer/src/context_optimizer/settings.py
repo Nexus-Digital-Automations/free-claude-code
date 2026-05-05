@@ -82,6 +82,33 @@ class ContextOptimizerSettings:
     """LRU bound for the digest cache. Each entry stores one digest
     text keyed by SHA-256 of the original tool_result content."""
 
+    # ---- Tier 0c (Ollama tool_use input digester) ----
+    tier0c_digest_enabled: bool = True
+    """Run Ollama digest on tool_use input blocks above the byte threshold,
+    skipping the last `tier0c_keep_recent_calls` tool_use blocks so the model
+    can still reference its most recent calls verbatim."""
+
+    tier0c_digest_min_bytes: int = 4000
+    """Tool_use blocks whose serialised input is below this byte size skip the
+    digest tier. Most tool calls (Read, Bash, simple Edit) are small; Edit/Write
+    of large bodies and MultiEdit are the realistic candidates."""
+
+    tier0c_keep_recent_calls: int = 3
+    """How many trailing tool_use blocks are kept verbatim. Protects against
+    the model re-using its most recent call args ('let me redo that edit
+    with X')."""
+
+    # ---- Tier 0d (Ollama long-user-paste digester) ----
+    tier0d_digest_enabled: bool = True
+    """Run Ollama digest on long user-message text blocks. Always skips the
+    LAST user message (the active request) — only historical user pastes
+    are eligible. Length-gated by tier0d_digest_min_bytes."""
+
+    tier0d_digest_min_bytes: int = 16_000
+    """User-text blocks smaller than this size pass through unchanged. Set
+    high (16K = ~4K tokens) so we only digest genuinely large pastes —
+    typical conversational prompts must never be touched."""
+
     # ---- Compaction prompt ----
     render_preview_chars: int = 2_000
     """Max chars shown per message in the compaction prompt preview."""

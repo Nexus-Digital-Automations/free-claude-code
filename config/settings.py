@@ -274,6 +274,50 @@ class Settings(BaseSettings):
             "truncation already applied."
         ),
     )
+    context_tier0c_digest_enabled: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_TIER0C_DIGEST_ENABLED",
+        description=(
+            "Run Ollama digest on old assistant tool_use input dicts (Edit, Write, "
+            "MultiEdit) when serialised input exceeds the byte threshold. Skips the "
+            "most recent N tool_use blocks so the model can still reference its "
+            "latest call args."
+        ),
+    )
+    context_tier0c_digest_min_bytes: int = Field(
+        default=4000,
+        validation_alias="CONTEXT_TIER0C_DIGEST_MIN_BYTES",
+        description=(
+            "Tool_use blocks whose serialised input is below this byte size skip the "
+            "tier0c digest pass."
+        ),
+    )
+    context_tier0c_keep_recent_calls: int = Field(
+        default=3,
+        validation_alias="CONTEXT_TIER0C_KEEP_RECENT_CALLS",
+        description=(
+            "How many trailing tool_use blocks tier0c keeps verbatim. Protects "
+            "against the model re-using its most recent call args."
+        ),
+    )
+    context_tier0d_digest_enabled: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_TIER0D_DIGEST_ENABLED",
+        description=(
+            "Run Ollama digest on long historical user-text blocks. Always skips "
+            "the LAST user message (the active request). Length-gated by "
+            "CONTEXT_TIER0D_DIGEST_MIN_BYTES."
+        ),
+    )
+    context_tier0d_digest_min_bytes: int = Field(
+        default=16_000,
+        validation_alias="CONTEXT_TIER0D_DIGEST_MIN_BYTES",
+        description=(
+            "User-text blocks smaller than this byte size pass through unchanged. "
+            "The default (16 KB ~= 4K tokens) is high to ensure typical "
+            "conversational prompts are never digested."
+        ),
+    )
 
     preflight_token_count: bool = Field(
         default=False,

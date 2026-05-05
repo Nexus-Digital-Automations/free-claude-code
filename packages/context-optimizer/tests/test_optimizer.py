@@ -349,3 +349,108 @@ async def test_tier0b_skips_short_tool_results():
 
     result = await tier0b.apply(msgs, settings)
     assert result is msgs or result[0]["content"][0]["content"] == short
+
+
+# ---- Tier 0c: tool_use input compaction ----
+
+def _tool_use(call_id: str, name: str, input_dict: dict) -> dict:
+    return {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": call_id, "name": name, "input": input_dict}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_tier0c_keeps_recent_tool_use_calls_verbatim(monkeypatch):
+    """Last `keep_recent_calls` tool_use blocks must not be digested."""
+    from context_optimizer.tiers import tier0c
+    from context_optimizer.ollama_supervisor import OllamaSupervisor
+
+    tier0c.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0c_digest_enabled=True,
+        tier0c_digest_min_bytes=100,
+        tier0c_keep_recent_calls=2,
+    )
+
+    big_input = {"new_string": "x" * 500, "file_path": "/foo.py"}
+    msgs = [
+        _tool_use("a", "Edit", big_input),
+        _tool_use("b", "Edit", big_input),
+        _tool_use("c", "Edit", big_input),
+        _tool_use("d", "Edit", big_input),
+    ]
+
+    async def fake_ensure_ready(_settings):
+        return True
+
+    async def fake_digest_one(candidate, _settings):
+        return "edit-digest"
+
+    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
+    monkeypatch.setattr(tier0c, "_digest_one", fake_digest_one)
+
+    result = await tier0c.apply(msgs, settings)
+
+    # Last 2 must be untouched
+    assert result[2]["content"][0]["input"] == big_input
+    assert result[3]["content"][0]["input"] == big_input
+    # First 2 should have been digested
+    assert "_compacted_summary" in result[0]["content"][0]["input"]
+    assert "_compacted_summary" in result[1]["content"][0]["input"]
+
+
+# ---- Tier 0d: long historical user-paste digester ----
+
+@pytest.mark.asyncio
+async def test_tier0d_skips_active_last_user_message(monkeypatch):
+    """The last user message (the active request) must never be digested."""
+    from context_optimizer.tiers import tier0d
+    from context_optimizer.ollama_supervisor import OllamaSupervisor
+
+    tier0d.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0d_digest_enabled=True,
+        tier0d_digest_min_bytes=100,
+    )
+
+    big_text = "log line\n" * 200
+    msgs = [
+        _msg("user", big_text),
+        _msg("assistant", "ack"),
+        _msg("user", big_text),  # last user — must not be digested
+    ]
+
+    async def fake_ensure_ready(_settings):
+        return True
+
+    async def fake_digest_one(candidate, _settings):
+        return "user-paste-digest"
+
+    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
+    monkeypatch.setattr(tier0d, "_digest_one", fake_digest_one)
+
+    result = await tier0d.apply(msgs, settings)
+
+    # The historical user message gets digested
+    assert result[0]["content"][0]["text"] == "user-paste-digest"
+    # The active (last) user message stays verbatim
+    assert result[2]["content"][0]["text"] == big_text
+
+
+@pytest.mark.asyncio
+async def test_tier0d_skips_short_user_text():
+    from context_optimizer.tiers import tier0d
+
+    tier0d.reset_for_test()
+
+    settings = ContextOptimizerSettings(
+        tier0d_digest_enabled=True,
+        tier0d_digest_min_bytes=16_000,
+    )
+
+    msgs = [_msg("user", "what time is it"), _msg("user", "now")]
+    result = await tier0d.apply(msgs, settings)
+    assert result is msgs
