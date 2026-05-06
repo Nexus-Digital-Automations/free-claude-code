@@ -9,10 +9,32 @@ from __future__ import annotations
 
 from collections import namedtuple
 from dataclasses import dataclass
+from typing import Any
 
 # A symbol extracted from a source file by tree-sitter.
 # kind: "def" (definition) or "ref" (reference)
 Tag = namedtuple("Tag", ["rel_path", "name", "kind", "line"])
+
+
+@dataclass(frozen=True)
+class ParsedFile:
+    """A successfully parsed source file with its tree-sitter Tree retained.
+
+    Held in memory between the parse pass and downstream extractors (tagger,
+    dep_graph). The Tree object is opaque — its lifetime is tied to the
+    parser instance via tree-sitter's C bindings, so this dataclass must
+    not outlive the parsing thread that produced it.
+
+    `tree` is `tree_sitter.Tree`; typed as Any here to keep _types.py free
+    of optional dependencies.
+    # Counterpart: tagger.parse_repo creates these; tagger.extract_tags_from_parsed
+    # and context_optimizer.repo_index.dep_graph consume them.
+    """
+    rel_path: str
+    abs_path: str
+    language: str       # tree-sitter-language-pack identifier, e.g. "python"
+    source: bytes
+    tree: Any
 
 
 @dataclass
