@@ -19,7 +19,6 @@ ago. We surface `created_at` and `status` in every hit to make that easy.
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
