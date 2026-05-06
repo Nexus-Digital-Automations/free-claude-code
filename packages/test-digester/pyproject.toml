@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test-digester"
+version = "0.1.0"
+description = "MCP server: run tests, return failures-only with Ollama-digested error bodies."
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "loguru>=0.7",
+    "context-optimizer",
+]
+
+[project.scripts]
+test-digester = "test_digester.server:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/test_digester"]
+
+[tool.uv.sources]
+context-optimizer = { path = "../context-optimizer", editable = true }
+
+[tool.ruff]
+line-length = 88

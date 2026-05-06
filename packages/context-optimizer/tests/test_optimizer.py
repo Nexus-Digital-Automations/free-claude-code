@@ -183,16 +183,17 @@ async def test_tier0b_returns_cached_digest_on_repeat_input(monkeypatch):
 
     call_count = {"n": 0}
 
-    async def fake_digest_one(candidate, _settings):
+    async def fake_call_ollama(content, build_prompt, config):
         call_count["n"] += 1
-        return "digest-text"
+        return "<digest>digest-text</digest>"
 
     async def fake_ensure_ready(_settings):
         return True
 
+    from context_optimizer import digest_core
     from context_optimizer.ollama_supervisor import OllamaSupervisor
     monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
-    monkeypatch.setattr(tier0b, "_digest_one", fake_digest_one)
+    monkeypatch.setattr(digest_core, "_call_ollama", fake_call_ollama)
 
     result1 = await tier0b.apply(msgs, settings)
     result2 = await tier0b.apply(msgs, settings)
