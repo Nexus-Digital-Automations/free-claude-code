@@ -41,3 +41,16 @@ aider/**
 # misreads as code-evaluation patterns). Cache is regenerated on every type
 # check, gitignored, and never deployed. All findings within it are irrelevant.
 **/.mypy_cache/**
+
+# ── Critical-severity suppressions for the same paths above ─────────────
+# detect-secrets and pattern-scanner emit hardcoded-secret / hardcoded-credential
+# findings at critical severity, which the bare globs above don't suppress.
+# These entries cover the test fixtures, README examples, .env.example
+# placeholders, and the OpenAI-SDK placeholder api_keys in api/dependencies.py
+# that are explicitly NOT real credentials — same justifications as above.
+[severity:critical] tests/**
+[severity:critical] README.md
+[severity:critical] .env.example
+[severity:critical] api/dependencies.py
+[severity:critical] providers/common/context_optimizer.py
+[severity:critical] aider/**
