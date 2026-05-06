@@ -298,7 +298,9 @@ def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: 
     if settings.repo_index_max_prefix_tokens > 0:
         return settings.repo_index_max_prefix_tokens
     import math
-    return min(8_000 + int(math.sqrt(n_tracked_files) * 1_200), 56_000)
+    # math.isqrt over math.sqrt: integer-input deterministic floor sqrt — bit-identical
+    # across platforms, so the auto-budget can't drift a token between macOS/Linux CI runs.
+    return min(8_000 + math.isqrt(n_tracked_files) * 1_200, 56_000)
 
 
 def _enforce_token_cap(

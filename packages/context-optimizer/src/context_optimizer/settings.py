@@ -84,6 +84,16 @@ class ContextOptimizerSettings:
     the model re-using its most recent call args ('let me redo that edit
     with X')."""
 
+    tier0c_digest_timeout_seconds: float = 5.0
+    """Per-batch timeout for tier0c's asyncio.gather of digest calls. Defaults
+    to the tier0b value because the same Ollama model handles both, but kept
+    independent so tool_use prompts (often longer JSON inputs) can be tuned
+    without affecting tier0b's tool_result digest budget."""
+
+    tier0c_digest_cache_max_entries: int = 500
+    """LRU bound for tier0c's digest cache. Independent of tier0b/0d so each
+    tier's hit-rate can be tuned to its own input distribution."""
+
     # ---- Tier 0d (Ollama long-user-paste digester) ----
     tier0d_digest_enabled: bool = True
     """Run Ollama digest on long user-message text blocks. Always skips the
@@ -95,6 +105,15 @@ class ContextOptimizerSettings:
     high (16K = ~4K tokens) so we only digest genuinely large pastes —
     typical conversational prompts must never be touched."""
 
+    tier0d_digest_timeout_seconds: float = 5.0
+    """Per-batch timeout for tier0d's asyncio.gather of digest calls. Independent
+    of tier0b so user-paste digests (typically larger inputs than tool_results)
+    can be given a longer budget without slowing the tool_result tier."""
+
+    tier0d_digest_cache_max_entries: int = 500
+    """LRU bound for tier0d's digest cache. Independent of tier0b/0c so each
+    tier's hit-rate can be tuned to its own input distribution."""
+
     # ---- Compaction prompt ----
     render_preview_chars: int = 2_000
     """Max chars shown per message in the block-tower seal prompt preview."""
@@ -103,10 +122,11 @@ class ContextOptimizerSettings:
     """Output token cap for tier0b/0c/0d Ollama digest calls. Block-tower
     seals compute their own cap from block_target_summary_tokens."""
 
-    compaction_temperature: float = 0.3
+    compaction_temperature: float = 0.0
     """Temperature for the block-tower seal Ollama call and tier0b/0c/0d
-    digest calls. Low so summaries of identical inputs come back byte-stable
-    across requests."""
+    digest calls. 0.0 enforces greedy decoding so identical inputs produce
+    byte-identical outputs — load-bearing for DeepSeek prefix cache stability
+    across daemon restarts and concurrent cache misses on the same input."""
 
     context_compaction_keep_alive: str = "30m"
     """Ollama keep_alive value for model warm-up calls."""

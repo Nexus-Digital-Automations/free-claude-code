@@ -162,20 +162,15 @@ async def _digest_misses(
 
     started = time.monotonic()
     coros = [_digest_one(candidates[ci], settings) for ci in miss_indices]
-    # tier0b/0c/0d intentionally share tier0b_digest_timeout_seconds and
-    # tier0b_digest_cache_max_entries — all three call the same Ollama model
-    # for similar-sized prompts, and adding tier-specific knobs would be
-    # unrequested configurability. Promote to dedicated settings if (and only
-    # if) measurement ever shows the tiers want different limits.
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*coros, return_exceptions=False),
-            timeout=settings.tier0b_digest_timeout_seconds,
+            timeout=settings.tier0d_digest_timeout_seconds,
         )
     except asyncio.TimeoutError:
         logger.warning(
             "CONTEXT_OPT: tier0d batch_timeout misses={} timeout_s={}",
-            len(miss_indices), settings.tier0b_digest_timeout_seconds,
+            len(miss_indices), settings.tier0d_digest_timeout_seconds,
         )
         return {}
 
@@ -188,7 +183,7 @@ async def _digest_misses(
         out[ci] = digest
         text = candidates[ci][2]
         key = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
-        _cache_put(key, digest, settings.tier0b_digest_cache_max_entries)
+        _cache_put(key, digest, settings.tier0d_digest_cache_max_entries)
         bytes_before += len(text)
         bytes_after += len(digest)
 
