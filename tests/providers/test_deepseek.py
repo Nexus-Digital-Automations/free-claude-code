@@ -217,6 +217,186 @@ def test_build_request_body_does_not_invent_a_system_message_for_the_nudge(deeps
     assert _PARALLEL_TOOL_CALL_NUDGE not in joined
 
 
+def test_strengthened_nudge_carries_cost_framing_and_concrete_examples(deepseek_config):
+    """The nudge text must include cost framing AND ≥2 mini-examples — drives the lift over the prior plain rule."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_NUDGE
+
+    assert "re-ships" in _PARALLEL_TOOL_CALL_NUDGE  # cost framing
+    assert "Read, Read, Read" in _PARALLEL_TOOL_CALL_NUDGE  # concrete example #1
+    assert "Grep, Grep" in _PARALLEL_TOOL_CALL_NUDGE  # concrete example #2
+
+
+def _tool_result_block(tool_use_id: str, text: str = "ok") -> MockBlock:
+    return MockBlock(type="tool_result", tool_use_id=tool_use_id, content=text)
+
+
+def test_appends_parallel_reminder_user_message_when_two_or_more_tool_results_present(
+    deepseek_config,
+):
+    """Happy path: ≥2 tool_results in the last user turn → trailing user reminder appended."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_REMINDER
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(
+        model="deepseek-chat",
+        tools=[_mock_tool()],
+        messages=[
+            MockMessage("user", "Find me three files"),
+            MockMessage("assistant", [MockBlock(type="text", text="Reading...")]),
+            MockMessage(
+                "user",
+                [
+                    _tool_result_block("t1"),
+                    _tool_result_block("t2"),
+                ],
+            ),
+        ],
+    )
+
+    body = provider._build_request_body(req)
+
+    assert body["messages"][-1] == {
+        "role": "user",
+        "content": _PARALLEL_TOOL_CALL_REMINDER,
+    }
+
+
+def test_does_not_append_parallel_reminder_when_single_tool_result(deepseek_config):
+    """A single tool_result is not a parallel-call signal — no reminder."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_REMINDER
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(
+        model="deepseek-chat",
+        tools=[_mock_tool()],
+        messages=[
+            MockMessage("user", "Find one file"),
+            MockMessage("assistant", [MockBlock(type="text", text="Reading...")]),
+            MockMessage("user", [_tool_result_block("t1")]),
+        ],
+    )
+
+    body = provider._build_request_body(req)
+
+    joined = "".join(str(m.get("content")) for m in body["messages"])
+    assert _PARALLEL_TOOL_CALL_REMINDER not in joined
+
+
+def test_does_not_append_parallel_reminder_when_no_tool_results(deepseek_config):
+    """Plain text user turn → no reminder (no parallel-call opportunity to repeat)."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_REMINDER
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=True)
+    req = MockRequest(model="deepseek-chat", tools=[_mock_tool()])  # default last msg is plain user text
+
+    body = provider._build_request_body(req)
+
+    joined = "".join(str(m.get("content")) for m in body["messages"])
+    assert _PARALLEL_TOOL_CALL_REMINDER not in joined
+
+
+def test_does_not_append_parallel_reminder_when_nudge_flag_disabled(deepseek_config):
+    """Kill-switch covers both A and B together — nudge=False suppresses the reminder too."""
+    from providers.deepseek.request import _PARALLEL_TOOL_CALL_REMINDER
+
+    with patch("providers.openai_compat.AsyncOpenAI"):
+        provider = DeepSeekProvider(deepseek_config, parallel_tool_call_nudge=False)
+    req = MockRequest(
+        model="deepseek-chat",
+        tools=[_mock_tool()],
+        messages=[
+            MockMessage("user", "Find me three files"),
+            MockMessage("assistant", [MockBlock(type="text", text="Reading...")]),
+            MockMessage(
+                "user",
+                [_tool_result_block("t1"), _tool_result_block("t2")],
+            ),
+        ],
+    )
+
+    body = provider._build_request_body(req)
+
+    joined = "".join(str(m.get("content")) for m in body["messages"])
+    assert _PARALLEL_TOOL_CALL_REMINDER not in joined
+
+
+# ---- Parallel-miss observability (D) --------------------------------------
+
+
+def _sse_with_n_tool_calls(n: int):
+    """Build a minimal SSEBuilder-like double whose tool_states dict has n entries."""
+    sse = MagicMock()
+    sse.blocks = MagicMock()
+    sse.blocks.tool_states = {i: object() for i in range(n)}
+    return sse
+
+
+def test_emits_parallel_miss_true_log_when_one_tool_call_after_multiple_tool_results(
+    deepseek_provider, caplog
+):
+    """1 tool_call emitted in response to ≥2 tool_results = parallel-call opportunity declined."""
+    import logging
+
+    req = MockRequest(
+        messages=[
+            MockMessage("user", "Find files"),
+            MockMessage("assistant", [MockBlock(type="text", text="Reading...")]),
+            MockMessage(
+                "user",
+                [_tool_result_block("t1"), _tool_result_block("t2")],
+            ),
+        ],
+    )
+    with caplog.at_level(logging.INFO):
+        deepseek_provider._on_stream_finish(
+            req,
+            _sse_with_n_tool_calls(1),
+            request_id="req_abc",
+            error_occurred=False,
+        )
+
+    matches = [r for r in caplog.records if "parallel_miss" in r.getMessage()]
+    assert len(matches) == 1
+    msg = matches[0].getMessage()
+    assert "parallel_miss=True" in msg
+    assert "tool_calls_emitted=1" in msg
+    assert "tool_results_in=2" in msg
+    assert "request_id=req_abc" in msg
+
+
+def test_emits_parallel_miss_false_log_when_response_has_multiple_tool_calls(
+    deepseek_provider, caplog
+):
+    """≥2 tool_calls emitted = the model already batched; parallel_miss=False."""
+    import logging
+
+    req = MockRequest(
+        messages=[
+            MockMessage("user", "Find files"),
+            MockMessage("assistant", [MockBlock(type="text", text="Reading...")]),
+            MockMessage(
+                "user",
+                [_tool_result_block("t1"), _tool_result_block("t2")],
+            ),
+        ],
+    )
+    with caplog.at_level(logging.INFO):
+        deepseek_provider._on_stream_finish(
+            req,
+            _sse_with_n_tool_calls(3),
+            request_id="req_xyz",
+            error_occurred=False,
+        )
+
+    matches = [r for r in caplog.records if "parallel_miss" in r.getMessage()]
+    assert len(matches) == 1
+    assert "parallel_miss=False" in matches[0].getMessage()
+    assert "tool_calls_emitted=3" in matches[0].getMessage()
+
+
 @pytest.mark.asyncio
 async def test_stream_response_reasoning_content(deepseek_provider):
     """reasoning_content deltas are emitted as thinking blocks."""

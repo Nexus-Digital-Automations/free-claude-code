@@ -134,6 +134,22 @@ class OpenAICompatibleProvider(BaseProvider):
         """Hook for provider-specific reasoning (e.g. OpenRouter reasoning_details)."""
         return iter(())
 
+    def _on_stream_finish(
+        self,
+        request: Any,
+        sse: SSEBuilder,
+        request_id: str | None,
+        error_occurred: bool,
+    ) -> None:
+        """Hook for per-request post-stream metrics. Default: no-op.
+
+        Called once at the end of every stream (success or error). Providers
+        override to emit observability that requires knowing the final SSE
+        block state — e.g. DeepSeek's parallel-miss metric. Counterpart:
+        providers/deepseek/client.py:DeepSeekProvider._on_stream_finish.
+        """
+        return
+
     def _get_retry_request_body(self, error: Exception, body: dict) -> dict | None:
         """Return a modified request body for one retry, or None."""
         return None
@@ -464,6 +480,9 @@ class OpenAICompatibleProvider(BaseProvider):
             finish_reason,
             error_occurred,
         )
+        # Final hook for provider-specific metrics (e.g. DeepSeek parallel-miss).
+        # Default impl is a no-op; called once per stream regardless of success.
+        self._on_stream_finish(request, sse, request_id, error_occurred)
         yield sse.message_delta(map_stop_reason(finish_reason), output_tokens)
         yield sse.message_stop()
 
