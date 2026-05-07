@@ -47,10 +47,27 @@ class OllamaSupervisor:
 
     _ready_until: ClassVar[float] = 0.0
     _cooldown_until: ClassVar[float] = 0.0
-    # Created at class-definition time so concurrent first callers cannot
-    # each create a distinct Lock and bypass coalescing. asyncio.Lock since
-    # 3.10 binds to the running loop lazily on first await, so this is safe.
+    # Why: asyncio.Lock binds to the running loop on first await. Hosts that
+    # call ensure_ready under repeated asyncio.run (e.g. an MCP server that
+    # drives one fresh loop per tool call) leave the lock stranded on a
+    # torn-down loop, and the next call raises "bound to a different event
+    # loop". _get_lock detects the cross-loop case and rebinds. Concurrent
+    # first callers within one loop still coalesce because the rebind only
+    # fires when the loop changes.
     _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._lock
+        bound = getattr(cls._lock, "_loop", None)
+        if bound is not None and bound is not loop:
+            cls._lock = asyncio.Lock()
+            cls._ready_until = 0.0
+            cls._cooldown_until = 0.0
+        return cls._lock
 
     @classmethod
     async def ensure_ready(cls, settings: Any) -> bool:
@@ -60,7 +77,7 @@ class OllamaSupervisor:
             return True
         if now < cls._cooldown_until:
             return False
-        async with cls._lock:
+        async with cls._get_lock():
             now = time.monotonic()
             if now < cls._ready_until:
                 return True
