@@ -114,7 +114,22 @@ class ContextOptimizerSettings:
     """LRU bound for tier0d's digest cache. Independent of tier0b/0c so each
     tier's hit-rate can be tuned to its own input distribution."""
 
-    # ---- Compaction prompt ----
+    # ---- Tier 0e (error-aware tool-call filter) ----
+    tier0e_enabled: bool = True
+    """When True, drop the input payload from every assistant tool_use whose
+    paired tool_result is NOT classified as an error. Tool_result content is
+    preserved verbatim — the codebase signal the model needs survives; only
+    the command/args wrapper is shed.
+
+    Errored pairs pass through unchanged. Three error signals (any one
+    triggers retention): the canonical `is_error` flag on tool_result, a
+    Bash-specific non-zero exit-code pattern in result text, and a keyword
+    scan scoped to noisy-tool names (Bash/WebFetch/WebSearch) where stderr-
+    shaped output reliably means failure. Read/Edit/Write/Grep/Glob are
+    excluded from the keyword scan to avoid false positives when source
+    files legitimately contain words like "error".
+
+    Default ON. Counterpart: tiers/tier0e.py."""
     render_preview_chars: int = 2_000
     """Max chars shown per message in the block-tower seal prompt preview."""
 

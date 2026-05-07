@@ -312,6 +312,17 @@ class Settings(BaseSettings):
             "conversational prompts are never digested."
         ),
     )
+    context_tier0e_enabled: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_TIER0E_ENABLED",
+        description=(
+            "Drop the input payload from successful assistant tool_use blocks "
+            "while preserving the paired tool_result content. Errored pairs "
+            "(is_error flag, Bash exit-code pattern, or stderr-keyword match "
+            "on Bash/WebFetch/WebSearch) pass through unchanged so the model "
+            "can debug from them. Default ON — set false to disable."
+        ),
+    )
 
     # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
     # Counterpart: packages/context-optimizer/.../block_tower/. Always-on; the

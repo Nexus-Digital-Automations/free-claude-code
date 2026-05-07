@@ -40,7 +40,7 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier0b, tier0c, tier0d, tier1
+from .tiers import tier0, tier0b, tier0c, tier0d, tier0e, tier1
 from .token_counter import count_tokens
 
 LLMProvider = Callable[[str], Awaitable[str]]
@@ -207,6 +207,20 @@ class ContextOptimizer:
         # Historical user-message text blocks above the high byte threshold
         # get digested. The active (last) user message is always skipped.
         msgs = await tier0d.apply(msgs, settings)
+
+        # --- Tier 0e: error-aware tool-call filter ---
+        # Drops the input payload from successful assistant tool_use blocks
+        # while preserving the paired tool_result content. Errored pairs
+        # (is_error flag, Bash exit-code pattern, or stderr-keyword match
+        # on noisy tools) pass through unchanged.
+        before_e = sum(len(str(m.get("content", ""))) for m in msgs)
+        msgs = tier0e.apply(msgs, settings)
+        after_e = sum(len(str(m.get("content", ""))) for m in msgs)
+        if before_e != after_e:
+            logger.info(
+                "CONTEXT_OPT: tier0e bytes_before={} bytes_after={} saved={}",
+                before_e, after_e, before_e - after_e,
+            )
 
         # --- Tier 1: thinking-block strip ---
         msgs = tier1.apply(msgs, settings.max_thinking_turns)

@@ -55,6 +55,7 @@ class ContextOptimizer:
             tier0c_keep_recent_calls=settings.context_tier0c_keep_recent_calls,
             tier0d_digest_enabled=settings.context_tier0d_digest_enabled,
             tier0d_digest_min_bytes=settings.context_tier0d_digest_min_bytes,
+            tier0e_enabled=getattr(settings, "context_tier0e_enabled", False),
             block_selection_mode=getattr(settings, "context_block_selection_mode", "selective"),
             block_seal_min_tail_tokens=getattr(settings, "context_block_seal_min_tail_tokens", 3_000),
             block_seal_min_requests=getattr(settings, "context_block_seal_min_requests", 4),
