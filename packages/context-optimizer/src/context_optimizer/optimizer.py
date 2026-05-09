@@ -3,7 +3,8 @@
 Pipeline per request (layers run in order):
   Layer -1 (repo index, optional):
     git HEAD SHA → load/build stable prefix → cosine search → prepend to system
-  Tiers 0/0b/0c/0d (free + Ollama digests on tool results, tool_use, pastes)
+  Tiers 0/0b/0c/0d/0e/0f (free dedup, Ollama digests, error-aware tool-call
+    filter, span-level Rabin-Karp dedup)
   Tier 1 (thinking-block strip)
   Token count
   Layer 0  (block tower):
@@ -26,8 +27,8 @@ Calls: tiers/tier0..1, token_counter.count_tokens,
        repo_index.RepoIndex (Layer -1), block_tower (Layer 0).
 
 # @stable — external callers depend on ContextOptimizer.optimize() signature.
-# EXTENSION POINT: add new tiers inside optimize() between tier1 and the
-#   block-tower step.
+# EXTENSION POINT: add new per-message tiers inside optimize() between
+#   tier0d and tier1. Conversation-level compaction belongs in block_tower/.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier0b, tier0c, tier0d, tier0e, tier1
+from .tiers import tier0, tier0b, tier0c, tier0d, tier0e, tier0f, tier1
 from .token_counter import count_tokens
 
 LLMProvider = Callable[[str], Awaitable[str]]
@@ -220,6 +221,20 @@ class ContextOptimizer:
             logger.info(
                 "CONTEXT_OPT: tier0e bytes_before={} bytes_after={} saved={}",
                 before_e, after_e, before_e - after_e,
+            )
+
+        # --- Tier 0f: span-level Rabin-Karp dedup ---
+        # Drops repeated text spans >= settings.tier0f_min_tokens (default 70)
+        # that appear more than once across messages. System prompt and last
+        # user message act as read-only definer sources so messages duplicating
+        # them get cleaned without touching the cache anchor or active query.
+        before_f = sum(len(str(m.get("content", ""))) for m in msgs)
+        msgs = tier0f.apply(msgs, settings, system=system)
+        after_f = sum(len(str(m.get("content", ""))) for m in msgs)
+        if before_f != after_f:
+            logger.info(
+                "CONTEXT_OPT: tier0f bytes_before={} bytes_after={} saved={}",
+                before_f, after_f, before_f - after_f,
             )
 
         # --- Tier 1: thinking-block strip ---

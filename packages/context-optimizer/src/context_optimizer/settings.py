@@ -130,6 +130,40 @@ class ContextOptimizerSettings:
     files legitimately contain words like "error".
 
     Default ON. Counterpart: tiers/tier0e.py."""
+
+    # ---- Tier 0f (span-level Rabin-Karp dedup) ----
+    tier0f_enabled: bool = True
+    """Drop repeated text spans >= tier0f_min_tokens that appear more than
+    once across messages. First occurrence kept verbatim; later occurrences
+    deleted with no replacement marker.
+
+    System prompt and last user message act as read-only definer sources:
+    their content can never be deleted (system protects DeepSeek's prefix
+    cache; last user message protects the active query) but spans inside
+    them register as "originals" so messages duplicating them get cleaned.
+
+    Default ON. Counterpart: tiers/tier0f.py."""
+
+    tier0f_min_tokens: int = 70
+    """Minimum K-gram length for a duplicate span to be eligible for deletion.
+    At 70 cl100k tokens (~280 chars / ~50 words / 3 sentences), real-world
+    duplicates are dominated by repeated structural blocks (file outlines,
+    error traces, code) that begin/end at newlines, so deletions land on
+    whitespace boundaries — mid-text fusion is rare. Lowering to 50 captures
+    ~10% more savings but raises fusion risk noticeably; raising to 100 is
+    safest but starts missing recurring boilerplate."""
+
+    tier0f_skip_system: bool = True
+    """When True, the system prompt is treated as a read-only definer source.
+    Its content can be matched against, but never deleted from. Load-bearing:
+    a mutated system prompt invalidates DeepSeek's prefix cache for every
+    subsequent request, costing far more than dedup saves."""
+
+    tier0f_skip_last_user: bool = True
+    """When True, the most recent user message is treated as a read-only
+    definer source. Protects the active request from accidental content loss
+    when it quotes earlier history."""
+
     render_preview_chars: int = 2_000
     """Max chars shown per message in the block-tower seal prompt preview."""
 
