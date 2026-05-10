@@ -8,6 +8,7 @@ from typing import Any, Literal
 from loguru import logger
 from pydantic import BaseModel, field_validator, model_validator
 
+from api.context import current_project_cwd
 from config.settings import Settings, get_settings
 
 
@@ -109,12 +110,19 @@ class MessagesRequest(BaseModel):
         if self.original_model is None:
             self.original_model = self.model
 
-        resolved_full = settings.resolve_model(self.original_model)
+        project_cwd = current_project_cwd.get()
+        resolved_full = settings.resolve_model(self.original_model, project_cwd)
         self.resolved_provider_model = resolved_full
         self.model = Settings.parse_model_name(resolved_full)
 
         if self.model != self.original_model:
-            logger.debug(f"MODEL MAPPING: '{self.original_model}' -> '{self.model}'")
+            # Promoted to INFO so "why did this request hit the opus tier" is
+            # answerable from a single grep without flipping log levels.
+            logger.info(
+                "MODEL_MAPPING original_model={} resolved={} project={}",
+                self.original_model, resolved_full,
+                str(project_cwd) if project_cwd else None,
+            )
 
         return self
 
@@ -132,5 +140,5 @@ class TokenCountRequest(BaseModel):
     def validate_model_field(cls, v: str, info) -> str:
         """Map any Claude model name to the configured model (model-aware)."""
         settings = get_settings()
-        resolved_full = settings.resolve_model(v)
+        resolved_full = settings.resolve_model(v, current_project_cwd.get())
         return Settings.parse_model_name(resolved_full)

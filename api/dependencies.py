@@ -1,6 +1,8 @@
 """Dependency injection for FastAPI."""
 
 import secrets
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
@@ -17,6 +19,10 @@ from providers.nvidia_nim import NVIDIA_NIM_BASE_URL, NvidiaNimProvider
 from providers.open_router import OPENROUTER_BASE_URL, OpenRouterProvider
 from providers.vertex import VertexProvider
 
+from .context import current_project_cwd
+
+PROJECT_HEADER = "x-free-claude-project"
+
 # Provider registry: keyed by provider type string, lazily populated
 _providers: dict[str, BaseProvider] = {}
 
@@ -24,6 +30,67 @@ _providers: dict[str, BaseProvider] = {}
 def get_settings() -> Settings:
     """Get application settings via dependency injection."""
     return _get_settings()
+
+
+async def get_project_cwd_from_header(
+    request: Request,
+) -> AsyncIterator[Path | None]:
+    """Bind the request's `X-Free-Claude-Project` header to a contextvar.
+
+    The Pydantic validator on `MessagesRequest` resolves the upstream
+    model-mapping when the request body is parsed, before the route
+    handler runs. It cannot read FastAPI request headers directly, so we
+    park the validated cwd in a contextvar that the validator reads.
+
+    Async-generator dep: a sync generator dep would run in the threadpool
+    with its own copied context, so `ContextVar.reset(token)` would fail
+    on cleanup ("Token created in a different Context"). Running async
+    keeps set / reset in the same asyncio task context.
+
+    Validation rejects (and falls back to global config) when:
+      - the header is missing or empty
+      - the path is not absolute
+      - the path is not a strict descendant of `Path.home()`
+      - the path does not resolve to an existing directory
+
+    Rejection logs at DEBUG and returns None — never raises. The proxy
+    is local-only, but a bad header should never surface as a 4xx; the
+    request should still succeed against the global mapping.
+    """
+    cwd = _project_cwd_from_request(request)
+    token = current_project_cwd.set(cwd)
+    try:
+        yield cwd
+    finally:
+        current_project_cwd.reset(token)
+
+
+def _project_cwd_from_request(request: Request) -> Path | None:
+    raw = request.headers.get(PROJECT_HEADER)
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        logger.debug(
+            "PROJECT_HEADER: rejected not_absolute value={}", raw,
+        )
+        return None
+    try:
+        resolved = candidate.resolve()
+        home_resolved = Path.home().resolve()
+    except OSError as exc:
+        logger.debug("PROJECT_HEADER: resolve_failed value={} error={}", raw, exc)
+        return None
+    if not resolved.is_dir():
+        logger.debug("PROJECT_HEADER: rejected not_a_dir value={}", raw)
+        return None
+    if home_resolved not in resolved.parents and resolved != home_resolved:
+        logger.debug(
+            "PROJECT_HEADER: rejected outside_home value={} home={}",
+            raw, home_resolved,
+        )
+        return None
+    return resolved
 
 
 def _get_proxy_value(settings: Settings, attr_name: str) -> str:

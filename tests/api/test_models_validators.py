@@ -51,7 +51,7 @@ def test_token_count_request_model_validation(mock_settings):
 def test_messages_request_model_mapping_logs(mock_settings):
     with (
         patch("api.models.anthropic.get_settings", return_value=mock_settings),
-        patch("api.models.anthropic.logger.debug") as mock_log,
+        patch("api.models.anthropic.logger.info") as mock_log,
     ):
         MessagesRequest(
             model="claude-2.1",
@@ -60,10 +60,12 @@ def test_messages_request_model_mapping_logs(mock_settings):
         )
 
         mock_log.assert_called()
-        args = mock_log.call_args[0][0]
-        assert "MODEL MAPPING" in args
-        assert "claude-2.1" in args
-        assert "target-model-from-settings" in args
+        args = mock_log.call_args[0]
+        message_template, *log_args = args
+        assert "MODEL_MAPPING" in message_template
+        rendered = " ".join(str(a) for a in log_args)
+        assert "claude-2.1" in rendered
+        assert "target-model-from-settings" in rendered
 
 
 def test_messages_request_resolved_provider_model_default(mock_settings):

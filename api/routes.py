@@ -13,7 +13,12 @@ from providers.common import get_user_facing_error_message
 from providers.common.context_optimizer import ContextOptimizer
 from providers.exceptions import InvalidRequestError, ProviderError
 
-from .dependencies import get_provider_for_type, get_settings, require_api_key
+from .dependencies import (
+    get_project_cwd_from_header,
+    get_provider_for_type,
+    get_settings,
+    require_api_key,
+)
 from .metrics import (
     COMPACTION_INVOCATION_TOTAL,
     COMPACTION_TOKENS_SAVED,
@@ -130,6 +135,7 @@ async def create_message(
     raw_request: Request,
     settings: Settings = Depends(get_settings),
     _auth=Depends(require_api_key),
+    project_cwd=Depends(get_project_cwd_from_header),
 ):
     """Create a message (always streaming).
 
@@ -154,8 +160,11 @@ async def create_message(
             provider_type = Settings.parse_provider_type(resolved)
             provider = get_provider_for_type(provider_type)
             logger.info(
-                "REQUEST: provider_selected request_id={} provider={} model={} resolved={}",
+                "REQUEST: provider_selected request_id={} provider={} model={} "
+                "resolved={} original_model={} project={}",
                 request_id, provider_type, request_data.model, resolved,
+                request_data.original_model,
+                str(project_cwd) if project_cwd else None,
             )
 
             raw_tokens = get_token_count(
@@ -286,6 +295,7 @@ async def count_tokens(
     request_data: TokenCountRequest,
     settings: Settings = Depends(get_settings),
     _auth=Depends(require_api_key),
+    _project_cwd=Depends(get_project_cwd_from_header),
 ):
     """Count tokens for a request."""
     request_id = f"req_{uuid.uuid4().hex[:12]}"

@@ -11,6 +11,12 @@
 #   cc-provider <provider>/<model>                set default MODEL
 #   cc-provider --tier opus|sonnet|haiku <p>/<m>  set MODEL_OPUS / MODEL_SONNET / MODEL_HAIKU
 #   cc-provider --clear-tier opus|sonnet|haiku    remove a tier override
+#   cc-provider --project init                    write X-Free-Claude-Project header
+#                                                 into $PWD/.claude/settings.json
+#   cc-provider --project set <tier> <p>/<m>      tier ∈ {default,opus,sonnet,haiku}
+#                                                 writes freeClaudeCode.models.<tier>
+#                                                 into $PWD/.claude/settings.json
+#   cc-provider --project show                    print merged per-project config
 #   cc-provider list                              print supported providers + current selection
 #   cc-provider                                   same as list
 
@@ -130,6 +136,98 @@ settings_unset() {
     mv "$tmp" "$SETTINGS"
 }
 
+project_settings_path() {
+    printf '%s/.claude/settings.json' "$PWD"
+}
+
+project_ensure_settings_file() {
+    local path="$1"
+    mkdir -p "$(dirname "$path")"
+    [[ -f "$path" ]] || echo '{}' > "$path"
+}
+
+project_init_header() {
+    # Idempotently appends `X-Free-Claude-Project: $PWD` to ANTHROPIC_CUSTOM_HEADERS.
+    # Claude Code reads ANTHROPIC_CUSTOM_HEADERS as the literal HTTP header
+    # block; comma-joining preserves any caller-defined headers.
+    local path
+    path="$(project_settings_path)"
+    project_ensure_settings_file "$path"
+    local header_value="X-Free-Claude-Project: $PWD"
+    local tmp existing
+    existing="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$path")"
+    if [[ "$existing" == *"X-Free-Claude-Project:"* ]]; then
+        local replaced
+        replaced="$(printf '%s\n' "$existing" | sed -E "s|X-Free-Claude-Project: [^,]*|${header_value}|")"
+        tmp="$(mktemp)"
+        jq --arg v "$replaced" '.env.ANTHROPIC_CUSTOM_HEADERS = $v' "$path" > "$tmp"
+        mv "$tmp" "$path"
+        echo "Updated X-Free-Claude-Project in $path"
+        return 0
+    fi
+    local new_value="$header_value"
+    [[ -n "$existing" ]] && new_value="$existing, $header_value"
+    tmp="$(mktemp)"
+    jq --arg v "$new_value" '.env.ANTHROPIC_CUSTOM_HEADERS = $v' "$path" > "$tmp"
+    mv "$tmp" "$path"
+    echo "Wrote ANTHROPIC_CUSTOM_HEADERS to $path"
+    echo "  X-Free-Claude-Project: $PWD"
+}
+
+is_supported_project_tier() {
+    case "$1" in default|opus|sonnet|haiku) return 0 ;; *) return 1 ;; esac
+}
+
+project_set_tier() {
+    local tier="$1" value="$2" path tmp
+    if ! is_supported_project_tier "$tier"; then
+        echo "cc-provider: unknown project tier '$tier' (default,opus,sonnet,haiku)" >&2
+        return 1
+    fi
+    validate_value "$value"
+    path="$(project_settings_path)"
+    project_ensure_settings_file "$path"
+    tmp="$(mktemp)"
+    jq --arg t "$tier" --arg v "$value" \
+        '.freeClaudeCode.models[$t] = $v' "$path" > "$tmp"
+    mv "$tmp" "$path"
+    echo "Set freeClaudeCode.models.$tier=$value in $path"
+}
+
+project_show() {
+    local path local_path
+    path="$(project_settings_path)"
+    local_path="${path%.json}.local.json"
+    [[ -f "$path" || -f "$local_path" ]] || {
+        echo "No per-project settings at $path"; return 0;
+    }
+    echo "Project: $PWD"
+    if [[ -f "$path" ]]; then
+        echo "--- $path"
+        jq '.freeClaudeCode // {}' "$path"
+    fi
+    if [[ -f "$local_path" ]]; then
+        echo "--- $local_path"
+        jq '.freeClaudeCode // {}' "$local_path"
+    fi
+}
+
+cmd_project() {
+    local sub="${1:-}"
+    case "$sub" in
+        init) project_init_header ;;
+        set)
+            [[ $# -ge 3 ]] || { echo "cc-provider --project set <tier> <provider/model>" >&2; exit 1; }
+            project_set_tier "$2" "$3"
+            ;;
+        show) project_show ;;
+        *)
+            echo "cc-provider: --project requires init|set|show (got '${sub:-<empty>}')" >&2
+            exit 1
+            ;;
+    esac
+}
+
 tier_to_env_key() {
     case "$1" in
         opus)   printf 'MODEL_OPUS'   ;;
@@ -240,6 +338,10 @@ main() {
         --clear-tier)
             [[ $# -ge 2 ]] || { echo "cc-provider: --clear-tier requires <tier>" >&2; exit 1; }
             cmd_clear_tier "$2"
+            ;;
+        --project)
+            shift
+            cmd_project "$@"
             ;;
         -h|--help)
             sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
