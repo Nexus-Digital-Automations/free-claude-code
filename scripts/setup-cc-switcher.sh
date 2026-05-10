@@ -79,10 +79,12 @@ EOF
 
 install_slash_commands() {
     local set_api_mode="$REPO_ROOT/scripts/cc-set-api-mode.sh"
+    local provider="$REPO_ROOT/scripts/cc-provider.sh"
     local status="$REPO_ROOT/scripts/cc-status"
-    write_slash_command "use-proxy"  "Switch to proxy mode — sets ANTHROPIC_BASE_URL in settings.json" "bash \"$set_api_mode\" proxy"
-    write_slash_command "use-direct" "Switch to direct mode — removes ANTHROPIC_BASE_URL from settings.json" "bash \"$set_api_mode\" direct"
-    write_slash_command "cc-status"  "Show current cc mode, base URL, and proxy server health"                  "\"$status\""
+    write_slash_command "use-proxy"   "Switch to proxy mode — sets ANTHROPIC_BASE_URL in settings.json" "bash \"$set_api_mode\" proxy"
+    write_slash_command "use-direct"  "Switch to direct mode — removes ANTHROPIC_BASE_URL from settings.json" "bash \"$set_api_mode\" direct"
+    write_slash_command "cc-provider" "Switch the proxy backend provider/model (writes MODEL/MODEL_OPUS/etc to .env)" "bash \"$provider\" \$ARGUMENTS"
+    write_slash_command "cc-status"   "Show current cc mode, base URL, proxy server health, and active provider" "\"$status\""
 }
 
 warn_if_path_missing() {
@@ -97,6 +99,7 @@ main() {
 
     chmod +x "$REPO_ROOT/scripts/cc" \
              "$REPO_ROOT/scripts/cc-set-api-mode.sh" \
+             "$REPO_ROOT/scripts/cc-provider.sh" \
              "$REPO_ROOT/scripts/cc-status"
 
     echo "Storing your real Anthropic API key (used in direct mode)."

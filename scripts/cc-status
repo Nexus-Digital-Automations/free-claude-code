@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Owns: reporting current cc mode and whether the proxy server is reachable.
-# Does NOT own: changing mode (cc-set-mode) or starting the server (start.sh).
+# Owns: reporting current cc mode, whether the proxy server is reachable, and
+#       which provider/model the proxy is configured to use.
+# Does NOT own: changing mode (cc-set-api-mode.sh), changing provider (cc-provider.sh),
+#               or starting the server (start.sh).
 # Called by: the /cc-status slash command and the user from the shell.
 # Calls:     curl (health probe), jq (reads settings.json for mode).
 set -euo pipefail
@@ -9,6 +11,32 @@ readonly SETTINGS="$HOME/.claude/settings.json"
 readonly PROXY_HOST="${HOST:-127.0.0.1}"
 readonly PROXY_PORT="${PORT:-8082}"
 readonly PROXY_BASE_URL="http://$PROXY_HOST:$PROXY_PORT"
+
+# Resolve the project's .env from this script's location, walking through any
+# symlink installed in ~/.local/bin so the path lands in the real repo.
+repo_root() {
+    local source="${BASH_SOURCE[0]}"
+    while [[ -L "$source" ]]; do
+        local dir
+        dir="$(cd -P "$(dirname "$source")" && pwd)"
+        source="$(readlink "$source")"
+        [[ "$source" != /* ]] && source="$dir/$source"
+    done
+    cd -P "$(dirname "$source")/.." && pwd
+}
+ENV_FILE="$(repo_root)/.env"
+
+read_env_value() {
+    local key="$1"
+    [[ -f "$ENV_FILE" ]] || { printf ''; return; }
+    local line raw
+    line="$(grep -E "^[[:space:]]*${key}=" "$ENV_FILE" 2>/dev/null | tail -n1 || true)"
+    [[ -z "$line" ]] && { printf ''; return; }
+    raw="${line#*=}"
+    raw="${raw%\"}"; raw="${raw#\"}"
+    raw="${raw%\'}"; raw="${raw#\'}"
+    printf '%s' "$raw"
+}
 
 mode="direct"
 if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
@@ -29,8 +57,19 @@ case "$mode" in
     direct) effective_base_url="(unset — direct to api.anthropic.com)" ;;
 esac
 
+active_default="$(read_env_value MODEL)"
+override_opus="$(read_env_value MODEL_OPUS)"
+override_sonnet="$(read_env_value MODEL_SONNET)"
+override_haiku="$(read_env_value MODEL_HAIKU)"
+
 cat <<EOF
 Mode:     $mode
 Base URL: $effective_base_url
 Server:   $server_status
+
+Active provider (proxy reads from $ENV_FILE):
+  Default (MODEL):   ${active_default:-(unset)}
+  Opus override:     ${override_opus:-(unset → uses default)}
+  Sonnet override:   ${override_sonnet:-(unset → uses default)}
+  Haiku override:    ${override_haiku:-(unset → uses default)}
 EOF
