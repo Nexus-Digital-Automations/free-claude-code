@@ -42,6 +42,9 @@ voice_local = [
     "accelerate>=0.30.0",
     "librosa>=0.10.0",
 ]
+vertex = [
+    "google-auth>=2.30.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["api", "cli", "config", "messaging", "providers"]

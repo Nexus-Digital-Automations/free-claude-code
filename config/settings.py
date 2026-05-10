@@ -127,6 +127,22 @@ class Settings(BaseSettings):
         validation_alias="LLAMACPP_BASE_URL",
     )
 
+    # ==================== Vertex AI Gemma Config ====================
+    # Targets self-deployed Gemma endpoints in Vertex AI Model Garden via the
+    # OpenAI-compatible chat-completions surface. Auth is ADC-preferred (set
+    # GOOGLE_APPLICATION_CREDENTIALS) with VERTEX_ACCESS_TOKEN as fallback.
+    # See providers/vertex/auth.py for the full credential resolution chain.
+    vertex_project: str = Field(default="", validation_alias="VERTEX_PROJECT")
+    vertex_region: str = Field(default="us-central1", validation_alias="VERTEX_REGION")
+    vertex_endpoint_id: str = Field(default="", validation_alias="VERTEX_ENDPOINT_ID")
+    vertex_access_token: str = Field(default="", validation_alias="VERTEX_ACCESS_TOKEN")
+    vertex_credentials_file: str = Field(
+        default="", validation_alias="VERTEX_CREDENTIALS_FILE"
+    )
+    # Comma-separated; Vertex endpoints have no /models discovery, so we
+    # accept the inventory statically (e.g. "gemma-3-9b-it,gemma-3-27b-it").
+    vertex_models: str = Field(default="", validation_alias="VERTEX_MODELS")
+
     # ==================== Model ====================
     # All Claude model requests are mapped to this single model (fallback)
     # Format: provider_type/model/name
@@ -143,6 +159,7 @@ class Settings(BaseSettings):
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
     lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
     llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
+    vertex_proxy: str = Field(default="", validation_alias="VERTEX_PROXY")
 
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")
