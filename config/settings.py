@@ -146,6 +146,16 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         validation_alias="OLLAMA_BASE_URL",
     )
+    # Context-optimizer reaches Ollama over the OpenAI-compatible /v1 surface;
+    # its adapter appends /v1 to ollama_base_url rather than duplicating the URL.
+    ollama_model: str = Field(default="qwen2.5:7b", validation_alias="OLLAMA_MODEL")
+    # Bounded await for the supervisor warm-up at app startup: long enough that
+    # `ollama serve` boot + small-model warm completes on a warm box, short
+    # enough that we don't block proxy startup if Ollama is missing.
+    # Counterpart: api/runtime.py AppRuntime, context_optimizer.OllamaSupervisor.
+    ollama_warmup_max_wait_s: float = Field(
+        default=8.0, validation_alias="OLLAMA_WARMUP_MAX_WAIT_S"
+    )
 
     # ==================== Model ====================
     # All Claude model requests are mapped to this single model (fallback)
@@ -157,6 +167,127 @@ class Settings(BaseSettings):
     model_opus: str | None = Field(default=None, validation_alias="MODEL_OPUS")
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
+
+    # ==================== Vertex AI (fork) ====================
+    vertex_project: str = Field(default="", validation_alias="VERTEX_PROJECT")
+    vertex_region: str = Field(default="us-central1", validation_alias="VERTEX_REGION")
+    vertex_endpoint_id: str = Field(default="", validation_alias="VERTEX_ENDPOINT_ID")
+    vertex_access_token: str = Field(default="", validation_alias="VERTEX_ACCESS_TOKEN")
+    vertex_credentials_file: str = Field(
+        default="", validation_alias="VERTEX_CREDENTIALS_FILE"
+    )
+    # Comma-separated; Vertex endpoints have no /models discovery, so we
+    # accept the inventory statically (e.g. "gemma-3-9b-it,gemma-3-27b-it").
+    vertex_models: str = Field(default="", validation_alias="VERTEX_MODELS")
+    vertex_proxy: str = Field(default="", validation_alias="VERTEX_PROXY")
+
+    # ==================== Context optimization (fork) ====================
+    # Counterpart: packages/context-optimizer + core/context/optimizer_adapter.py.
+    context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
+    context_max_thinking_turns: int = Field(
+        default=1, validation_alias="CONTEXT_MAX_THINKING_TURNS"
+    )
+    # Cold-start emergency seal threshold. When the first request of a session
+    # arrives already over this size and no blocks have been sealed yet, the
+    # block tower runs a synchronous seal (bounded ~12s) before forwarding.
+    context_compact_threshold_tokens: int = Field(
+        default=65000, validation_alias="CONTEXT_COMPACT_THRESHOLD_TOKENS"
+    )
+    context_tier0_max_lines: int = Field(
+        default=200, validation_alias="CONTEXT_TIER0_MAX_LINES"
+    )
+    context_tier0_head_lines: int = Field(
+        default=50, validation_alias="CONTEXT_TIER0_HEAD_LINES"
+    )
+    context_tier0_tail_lines: int = Field(
+        default=50, validation_alias="CONTEXT_TIER0_TAIL_LINES"
+    )
+    context_render_preview_chars: int = Field(
+        default=2000, validation_alias="CONTEXT_RENDER_PREVIEW_CHARS"
+    )
+    context_compaction_max_tokens: int = Field(
+        default=4000, validation_alias="CONTEXT_COMPACTION_MAX_TOKENS"
+    )
+    context_compaction_temperature: float = Field(
+        default=0.3, validation_alias="CONTEXT_COMPACTION_TEMPERATURE"
+    )
+    context_compaction_keep_alive: str = Field(
+        default="30m", validation_alias="CONTEXT_COMPACTION_KEEP_ALIVE"
+    )
+    context_tokenizer_model: str = Field(
+        default="deepseek-ai/DeepSeek-V3",
+        validation_alias="CONTEXT_TOKENIZER_MODEL",
+        description=(
+            "HuggingFace model ID or tiktoken encoding name used for token "
+            "counting across the compaction optimizer and request logging. "
+            "Names containing '/' load via the `tokenizers` library with "
+            "automatic fallback to cl100k_base on download failure."
+        ),
+    )
+    context_tier0b_digest_enabled: bool = Field(
+        default=True, validation_alias="CONTEXT_TIER0B_DIGEST_ENABLED"
+    )
+    context_tier0b_digest_min_bytes: int = Field(
+        default=8000, validation_alias="CONTEXT_TIER0B_DIGEST_MIN_BYTES"
+    )
+    context_tier0b_digest_timeout_seconds: float = Field(
+        default=5.0, validation_alias="CONTEXT_TIER0B_DIGEST_TIMEOUT_SECONDS"
+    )
+    context_tier0c_digest_enabled: bool = Field(
+        default=True, validation_alias="CONTEXT_TIER0C_DIGEST_ENABLED"
+    )
+    context_tier0c_digest_min_bytes: int = Field(
+        default=4000, validation_alias="CONTEXT_TIER0C_DIGEST_MIN_BYTES"
+    )
+    context_tier0c_keep_recent_calls: int = Field(
+        default=3, validation_alias="CONTEXT_TIER0C_KEEP_RECENT_CALLS"
+    )
+    context_tier0d_digest_enabled: bool = Field(
+        default=True, validation_alias="CONTEXT_TIER0D_DIGEST_ENABLED"
+    )
+    context_tier0d_digest_min_bytes: int = Field(
+        default=16_000, validation_alias="CONTEXT_TIER0D_DIGEST_MIN_BYTES"
+    )
+    context_tier0e_enabled: bool = Field(
+        default=True, validation_alias="CONTEXT_TIER0E_ENABLED"
+    )
+    # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
+    context_block_selection_mode: str = Field(
+        default="selective",
+        validation_alias="CONTEXT_BLOCK_SELECTION_MODE",
+        description=(
+            "One of {'selective','all','off'}. 'selective' = Ollama picks "
+            "relevant blocks per request; 'all' = include every block; "
+            "'off' = disable Layer 0 entirely."
+        ),
+    )
+    context_block_seal_min_tail_tokens: int = Field(
+        default=3_000, validation_alias="CONTEXT_BLOCK_SEAL_MIN_TAIL_TOKENS"
+    )
+    context_block_seal_min_requests: int = Field(
+        default=4, validation_alias="CONTEXT_BLOCK_SEAL_MIN_REQUESTS"
+    )
+    context_block_target_summary_tokens: int = Field(
+        default=500, validation_alias="CONTEXT_BLOCK_TARGET_SUMMARY_TOKENS"
+    )
+    context_block_storage_dir: str | None = Field(
+        default=None,
+        validation_alias="CONTEXT_BLOCK_STORAGE_DIR",
+        description=(
+            "Directory under which <session_key>/block-NNNN.txt files live. "
+            "None = <repo_root>/.context/blocks/ auto-derived from cwd."
+        ),
+    )
+    preflight_token_count: bool = Field(
+        default=False,
+        validation_alias="PREFLIGHT_TOKEN_COUNT",
+        description=(
+            "Make a max_tokens=1 non-streaming call before each stream to obtain "
+            "the provider's actual prompt_tokens for message_start usage. Without "
+            "this, Claude Code's TUI shows cl100k_base estimates that diverge from "
+            "DeepSeek/upstream tokenizers by 1.65-2.35x."
+        ),
+    )
 
     # ==================== Per-Provider Proxy ====================
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
