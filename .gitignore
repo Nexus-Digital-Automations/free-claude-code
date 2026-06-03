@@ -6,7 +6,14 @@ __pycache__
 .serena
 .venv
 agent_workspace
+# secrets / credential material (never commit)
 .env
+.env.*
+*.key
+*.pem
+*.p12
+*credentials*
+*secrets*
 /logs/
 server.log
 /server.*.log

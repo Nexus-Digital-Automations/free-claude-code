@@ -1,0 +1,22 @@
+# Security-scan suppressions. Each rule names what it silences and why.
+# Qualifier-prefixed ([category:|tool:|severity:]) rules are required to
+# suppress credential-class findings (auditable opt-in).
+
+# Unit-test fixtures use fabricated, non-secret API keys (e.g. "test_deepseek_key",
+# "lm-studio", "shared-opencode-token"). They are not real credentials; gitleaks
+# and detect-secrets confirm no real secrets in the tree.
+[category:hardcoded-credential] tests/**
+
+# Vendored Headroom reference project (gitignored, third-party — see
+# specs/upstream-full-rebase.md Part 2). Not maintained in this repo.
+[tool:pattern-scanner] docs/headroom/**
+
+# Vendored Aider CLI (gitignored, third-party tool). Its credential/weak-hash/
+# ssl/shell findings are upstream Aider's, not this codebase's.
+[tool:pattern-scanner] aider/**
+
+# Generated mypy cache — not source code.
+packages/context-optimizer/.mypy_cache/**
+
+# Generated runtime logs — not source code.
+logs/**
