@@ -1,0 +1,24 @@
+packages/context-optimizer/src/context_optimizer/digest_core.py:74: error: Item "None" of "str | None" has no attribute "strip"  [union-attr]
+            cached = _cache_get(key)
+            if cached is not None:
+                return cached
+            body = await _call_ollama(content, build_prompt, config)
+            if body is None:
+                return None
+            parsed = parse_response(body)
+            if parsed is None:
+                logger.warning("DIGEST_CORE: parse_error first_200=%r", body[:200])
+                return None
+            _cache_put(key, parsed.strip(), cache_max_entries)
+                       ^~~~~~~~~~~~~~
+
+packages/context-optimizer/src/context_optimizer/digest_core.py:115: error: "DigestConfig" has no attribute "context_compaction_keep_alive"  [attr-defined]
+        async with AsyncOpenAI(api_key="ollama", base_url=config.ollama_base_url) as client:
+            extra = {"keep_alive": config.context_compaction_keep_alive}
+                                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+packages/context-optimizer/src/context_optimizer/digest_core.py:127: error: Need type annotation for "resp"  [var-annotated]
+            resp = None
+            ^~~~
+
+Found 3 errors in 1 file (checked 1 source file)

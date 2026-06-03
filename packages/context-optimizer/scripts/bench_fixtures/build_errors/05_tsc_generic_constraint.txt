@@ -1,0 +1,23 @@
+src/lib/cache.ts:52:5 - error TS2322: Type 'T' is not assignable to type 'string'.
+  'T' could be instantiated with an arbitrary type which could be unrelated to 'string'.
+
+52     return key as string;
+       ~~~~~~
+
+src/lib/cache.ts:78:24 - error TS2345: Argument of type '{ key: string; value: T; }' is not assignable to parameter of type 'CacheEntry<T>'.
+  Property 'expires_at' is missing in type '{ key: string; value: T; }' but required in type 'CacheEntry<T>'.
+
+78     this.store.set(key, { key, value });
+                              ~~~~~~~~~~~~
+
+  src/lib/cache.ts:14:3
+    14   expires_at: number;
+         ~~~~~~~~~~
+    'expires_at' is declared here.
+
+src/lib/cache.ts:104:14 - error TS2367: This comparison appears to be unintentional because the types '"hit" | "miss"' and '"stale"' have no overlap.
+
+104     if (status === 'stale') {
+                ~~~~~~~~~~~~~~~
+
+Found 3 errors in 1 file.

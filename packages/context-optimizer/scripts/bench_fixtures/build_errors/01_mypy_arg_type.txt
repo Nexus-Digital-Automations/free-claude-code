@@ -1,0 +1,11 @@
+packages/context-optimizer/src/context_optimizer/repo_index/dep_graph.py:142: error: Argument 1 to "build_for_repo" has incompatible type "Path"; expected "str"  [arg-type]
+        graph = build_for_repo(repo_root)
+                               ^~~~~~~~~
+packages/context-optimizer/src/context_optimizer/repo_index/dep_graph.py:158: error: Item "None" of "DepGraph | None" has no attribute "by_file"  [union-attr]
+        return self._cache.get(repo_root).by_file.get(rel_path, [])
+                                          ^
+packages/context-optimizer/src/context_optimizer/repo_index/dep_graph.py:198: error: Incompatible return value type (got "list[Import] | None", expected "list[Import]")  [return-value]
+        return imports if imports else None
+        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Found 3 errors in 1 file (checked 47 source files)

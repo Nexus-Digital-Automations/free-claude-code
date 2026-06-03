@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lsp-bridge"
+version = "0.1.0"
+description = "MCP server: Python type/hover and definition lookup via Jedi."
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "loguru>=0.7",
+    "jedi>=0.19",
+]
+
+[project.scripts]
+lsp-bridge = "lsp_bridge.server:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lsp_bridge"]
+
+[tool.ruff]
+line-length = 88

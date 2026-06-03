@@ -1,0 +1,33 @@
+error[E0382]: borrow of moved value: `config`
+   --> src/digest/runner.rs:88:34
+    |
+72  |     fn dispatch(config: DigestConfig, items: Vec<Item>) -> Vec<Result> {
+    |                 ------ move occurs because `config` has type `DigestConfig`, which does not implement the `Copy` trait
+...
+85  |         for item in items {
+    |             ----
+86  |             let result = run_one(config, item);
+    |                                  ------ value moved here, in previous iteration of loop
+...
+88  |         finalize(&config)
+    |                  ^^^^^^^ value borrowed here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+86  |             let result = run_one(config.clone(), item);
+    |                                        ++++++++
+
+error[E0596]: cannot borrow `*self` as mutable, as it is behind a `&` reference
+   --> src/digest/runner.rs:114:9
+    |
+112 |     fn record(&self, latency_ms: u64) {
+    |               ----- help: consider changing this to be a mutable reference: `&mut self`
+113 |         let mut history = self.history.clone();
+114 |         self.history.push(latency_ms);
+    |         ^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+
+error: aborting due to 2 previous errors
+
+Some errors have detailed explanations: E0382, E0596.
+For more information about an error, try `rustc --explain E0382`.
+error: could not compile `digest-runner` (lib) due to 2 previous errors

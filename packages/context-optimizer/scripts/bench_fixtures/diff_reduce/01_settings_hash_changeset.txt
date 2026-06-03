@@ -1,0 +1,8 @@
+## packages/context-optimizer/src/context_optimizer/repo_index/index.py
+Threaded a settings-hash through the cache key so chunk_size and embedding_model retunes invalidate the on-disk cache instead of returning a stale tree. Renamed `_loaded_tree_hash` to `_loaded_cache_key` to reflect the wider key. New helpers `_cache_key()` and `_settings_cache_suffix()` centralise the hashing. Public load/build signatures unchanged. Risk hot-spot: any call site still passing only the tree hash will silently miss the new suffix and rebuild on every call.
+
+## packages/context-optimizer/tests/repo_index/test_index.py
+Updated three cache-hit tests to construct the new key shape and added one new test asserting that mutating `chunk_size` invalidates the cache. No existing assertion bodies changed.
+
+## packages/context-optimizer/src/context_optimizer/settings.py
+Added `_settings_cache_components()` returning the tuple of (chunk_size, embedding_model, tokenizer_model) that contributes to the cache suffix. New attribute, no defaults changed. External callers should not depend on the tuple order — it's hashed, not displayed.

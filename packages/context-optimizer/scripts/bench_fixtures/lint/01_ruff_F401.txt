@@ -1,0 +1,9 @@
+rule_id: F401
+rule_name: unused-import
+finding_count: 7
+example:
+  file: packages/context-optimizer/src/context_optimizer/repo_index/dep_graph.py
+  line: 14
+  column: 1
+  message: "`os` imported but unused"
+  source: "import os"

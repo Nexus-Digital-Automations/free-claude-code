@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memory-recall"
+version = "0.1.0"
+description = "MCP server: cross-session recall over plan/spec markdown via SQLite FTS5."
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "loguru>=0.7",
+]
+
+[project.scripts]
+memory-recall = "memory_recall.server:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memory_recall"]
+
+[tool.ruff]
+line-length = 88

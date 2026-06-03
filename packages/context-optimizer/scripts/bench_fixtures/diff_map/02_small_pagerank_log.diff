@@ -1,0 +1,29 @@
+commit b6fba8d76c8486a58db97b7e37f2877d5352efd1
+Author: Nexus-Digital-Automations <founder1@nexusdigitalautomations.com>
+Date:   Tue May 5 16:54:58 2026 -0500
+
+    Log PageRank personalization fallback so flake is visible
+    
+    ranker.rank_files: the first ZeroDivisionError used to silently retry
+    without personalization; only the second (terminal) failure logged.
+    Operators couldn't see when PageRank's personalised pass was flaking
+    on weakly-connected graphs, only when it gave up entirely. Surfaces
+    the retry path with a structured warning so it shows up in dashboards.
+    
+    Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
+diff --git a/packages/context-optimizer/src/context_optimizer/repo_index/ranker.py b/packages/context-optimizer/src/context_optimizer/repo_index/ranker.py
+index 2c5ff5f..4c415d1 100644
+--- a/packages/context-optimizer/src/context_optimizer/repo_index/ranker.py
++++ b/packages/context-optimizer/src/context_optimizer/repo_index/ranker.py
+@@ -90,6 +90,10 @@ def rank_files(
+         # back to no personalization uses uniform initial probability,
+         # which always sums to 1 across all nodes. Second failure means
+         # the graph itself is degenerate; we log and surrender to caller.
++        logger.warning(
++            "REPO_INDEX: ranker pagerank_personalization_zero_division files={} — retrying without personalization",
++            len(tags_by_file),
++        )
+         try:
+             ranked = nx.pagerank(G, weight="weight")
+         except ZeroDivisionError:

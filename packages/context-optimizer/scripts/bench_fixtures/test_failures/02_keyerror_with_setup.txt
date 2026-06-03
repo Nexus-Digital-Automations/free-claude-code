@@ -1,0 +1,34 @@
+_________________________________ test_dep_graph_resolves_relative_import _________________________________
+
+repo_root = PosixPath('/private/var/folders/3c/...8/T/pytest-of-jp/pytest-12/test_dep_graph0')
+
+    @pytest.fixture
+    def repo_root(tmp_path: Path) -> Path:
+        (tmp_path / "a.py").write_text("from .b import foo\n")
+        (tmp_path / "b.py").write_text("def foo(): pass\n")
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"],
+            cwd=tmp_path, check=True,
+        )
+        return tmp_path
+
+    def test_dep_graph_resolves_relative_import(repo_root: Path) -> None:
+        graph = build_for_repo(str(repo_root))
+>       assert graph.by_file["a.py"][0].resolved == "b.py"
+E       KeyError: 'a.py'
+
+packages/context-optimizer/tests/repo_index/test_dep_graph.py:142: KeyError
+
+During handling of the above exception, another exception occurred:
+
+    @pytest.fixture
+    def repo_root(tmp_path: Path) -> Path:
+        ...
+>       return tmp_path
+E       Failed: setup teardown not yet run
+
+packages/context-optimizer/tests/repo_index/test_dep_graph.py:38: Failed
+=========================================== short test summary info ============================================
+FAILED packages/context-optimizer/tests/repo_index/test_dep_graph.py::test_dep_graph_resolves_relative_import - KeyError: 'a.py'

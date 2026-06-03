@@ -1,0 +1,91 @@
+commit 245eda8a77ca464ca3b715a63f4ae4570371e08a
+Author: Nexus-Digital-Automations <founder1@nexusdigitalautomations.com>
+Date:   Tue May 5 10:26:23 2026 -0500
+
+    Auto-scale top_n ceiling so mass selector isn't silently capped on medium+ repos
+    
+    repo_index_top_n now defaults to 0 (auto), computing min(20 + n_tracked // 10, 100).
+    A 300-file repo gets top_n=50, a 800-file repo gets 100 — the mass selector has room
+    to reach its 80% coverage target instead of hitting a fixed-20 wall.
+    
+    Set repo_index_top_n explicitly to pin the ceiling.
+    
+    Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+
+diff --git a/packages/context-optimizer/src/context_optimizer/repo_index/index.py b/packages/context-optimizer/src/context_optimizer/repo_index/index.py
+index 2fe6598..c320d29 100644
+--- a/packages/context-optimizer/src/context_optimizer/repo_index/index.py
++++ b/packages/context-optimizer/src/context_optimizer/repo_index/index.py
+@@ -172,20 +172,21 @@ class RepoIndex:
+         if not file_paths:
+             raise RuntimeError(f"No tracked files found in {repo_root}")
+ 
+-        token_ceiling = _compute_token_ceiling(settings, len(file_paths))
++        n_tracked = len(file_paths)
++        token_ceiling = _compute_token_ceiling(settings, n_tracked)
++        effective_top_n = _compute_effective_top_n(settings, n_tracked)
+         logger.info(
+-            "REPO_INDEX: build start hash={} mass_target={} token_ceiling={}",
+-            sha[:7], settings.repo_index_pagerank_mass_target, token_ceiling,
++            "REPO_INDEX: build start hash={} tracked={} mass_target={} top_n={} token_ceiling={}",
++            sha[:7], n_tracked, settings.repo_index_pagerank_mass_target,
++            effective_top_n, token_ceiling,
+         )
+ 
+         tags_by_file = tagger.get_tags_for_repo(repo_root, file_paths)
+         ranked = ranker.rank_files(tags_by_file)
+-        # Mass selector covers the configured fraction of architectural signal;
+-        # repo_index_top_n is a hard upper bound on file count.
+         top_files = ranker.select_by_mass(
+             ranked,
+             settings.repo_index_pagerank_mass_target,
+-            max_files=settings.repo_index_top_n,
++            max_files=effective_top_n,
+         )
+ 
+         prefix_text = _render(repo_root, top_files, settings)
+@@ -253,6 +254,23 @@ def _render(repo_root: str, top_files: list[str], settings: ContextOptimizerSett
+         return renderer.render_fallback(repo_root, top_files)
+ 
+ 
++def _compute_effective_top_n(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
++    """Return the file-count ceiling for the mass selector.
++
++    When repo_index_top_n == 0 (auto), scales linearly with repo size:
++      effective = clamp(20 + n_tracked_files // 10, max=100)
++    Examples: 100 files → 30, 300 files → 50, 800 files → 100.
++    Linear scaling (vs sqrt for token ceiling) is intentional — file count is already
++    a rough proxy for breadth; diminishing returns on token quality is handled separately.
++
++    When repo_index_top_n > 0, uses that value verbatim as the explicit override.
++    Counterpart: settings.repo_index_top_n docstring.
++    """
++    if settings.repo_index_top_n > 0:
++        return settings.repo_index_top_n
++    return min(20 + n_tracked_files // 10, 100)
++
++
+ def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
+     """Return the maximum prefix token budget.
+ 
+diff --git a/packages/context-optimizer/src/context_optimizer/settings.py b/packages/context-optimizer/src/context_optimizer/settings.py
+index f852328..3d836aa 100644
+--- a/packages/context-optimizer/src/context_optimizer/settings.py
++++ b/packages/context-optimizer/src/context_optimizer/settings.py
+@@ -142,10 +142,12 @@ class ContextOptimizerSettings:
+     repo_index_context_dir: str | None = None
+     """Directory for .context/ files. None = <git_root>/.context/."""
+ 
+-    repo_index_top_n: int = 20
+-    """Hard upper bound on files included. Acts as a ceiling on the mass selector so a
+-    pathologically flat repo cannot include hundreds of equally-ranked files. Raise this
+-    (e.g. to 60-80) to give the mass selector more room on large repos."""
++    repo_index_top_n: int = 0
++    """Hard upper bound on files passed to the mass selector.
++    0 = auto: min(20 + n_tracked_files // 10, 100) — scales with repo size so the mass
++    selector has room to work without an arbitrary cap silently overriding it.
++    Set explicitly to pin the ceiling (e.g. 30 for a tightly-scoped prefix).
++    Counterpart: index._compute_effective_top_n."""
+ 
+     repo_index_chunk_size_tokens: int = 200
+     repo_index_chunk_overlap_tokens: int = 20

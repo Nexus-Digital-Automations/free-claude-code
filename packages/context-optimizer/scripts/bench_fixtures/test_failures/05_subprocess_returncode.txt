@@ -1,0 +1,38 @@
+______________________________________ test_run_git_raises_on_bad_revision ______________________________________
+
+repo = '/private/var/folders/.../T/pytest-of-jp/pytest-3/test_run_git_raises_on_bad_revision0'
+
+    def test_run_git_raises_on_bad_revision(repo: str) -> None:
+        with pytest.raises(GitError) as exc_info:
+>           run_git(repo, "show", "deadbeef")
+
+tests/test_git_util.py:54:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+repo_path = '/private/var/folders/.../T/pytest-of-jp/pytest-3/test_run_git_raises_on_bad_revision0'
+args = ('show', 'deadbeef')
+
+    def run_git(repo_path: str, *args: str, timeout: float = 10.0) -> CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                ["git", *args], cwd=repo_path, check=True,
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except subprocess.CalledProcessError as exc:
+>           raise GitError(code="bad_revision", detail=exc.stderr.strip()) from exc
+E           src.repo_tools.git_util.GitError: GitError(code='bad_revision', detail="fatal: bad revision 'deadbeef'")
+
+src/repo_tools/git_util.py:38: GitError
+
+The above exception was the direct cause of the following exception:
+
+>       with pytest.raises(GitError) as exc_info:
+            run_git(repo, "show", "deadbeef")
+        assert exc_info.value.code == "command_not_found"
+E       AssertionError: assert 'bad_revision' == 'command_not_found'
+E         - command_not_found
+E         + bad_revision
+
+tests/test_git_util.py:56: AssertionError
+=========================================== short test summary info ============================================
+FAILED tests/test_git_util.py::test_run_git_raises_on_bad_revision - AssertionError: assert 'bad_revision' == 'command_not_found'

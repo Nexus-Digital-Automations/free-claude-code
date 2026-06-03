@@ -1,0 +1,17 @@
+## packages/context-optimizer/src/context_optimizer/repo_index/dep_graph.py
+New module. Public API: `build_for_repo(repo)`, `imports_of(repo, rel_path)`, `imported_by(repo, rel_path)`. Builds a per-repo dep graph keyed on git HEAD sha; module-level cache is in-memory only. Python uses stdlib `ast` for relative-import correctness; other languages reuse the tagger's tree-sitter parses. Risk: the cache is shared across processes that import this module — concurrent rebuilds are guarded by `_lock_for(repo_root)`, but the lock is per-process, not cross-process.
+
+## packages/context-optimizer/src/context_optimizer/repo_index/tagger.py
+Refactored `get_tags_for_repo` into `parse_repo` + `extract_tags_from_parsed` so dep_graph can consume the same parse trees without re-parsing. No public-API change; existing callers still see the same `get_tags_for_repo` shape.
+
+## packages/context-optimizer/src/context_optimizer/repo_index/import_extractors/__init__.py
+Registry mapping language → extractor function. New module. Three extractors land here: `python_ast` (stdlib AST), `treesitter_imports` (generic walker keyed by node type), `raw_import` (record raw module strings, no resolution). Languages without a registered extractor return an empty import list.
+
+## packages/context-optimizer/src/context_optimizer/repo_index/index.py
+Wired `build_for_repo` to run after the existing tagger pass; shares the HEAD-sha cache key. No second parse pass.
+
+## packages/context-optimizer/tests/repo_index/test_dep_graph.py
+13 new tests including HEAD-invalidation, the cache-counter pattern (2nd call within same HEAD must skip rebuild), Python relative-import correctness, and TS resolution for `./foo` vs bare specifiers. Risk hot-spot: the cache-counter test asserts a specific call count via a module-private monkeypatch — fragile if the cache implementation changes.
+
+## packages/context-optimizer/tests/repo_index/test_dep_graph_resolution.py
+6 new tests covering TS resolution and Go raw-only mode.

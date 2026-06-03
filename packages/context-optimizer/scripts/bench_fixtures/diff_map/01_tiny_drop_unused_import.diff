@@ -1,0 +1,21 @@
+commit 46ab332ebbfaf6cd89496e5a07e38f3aa80013d3
+Author: Nexus-Digital-Automations <founder1@nexusdigitalautomations.com>
+Date:   Tue May 5 23:49:14 2026 -0500
+
+    Drop unused os import in memory_recall.server
+    
+    Leftover from earlier draft that took cwd-based default; current code uses
+    the home-dir path constant directly.
+
+diff --git a/packages/memory-recall/src/memory_recall/server.py b/packages/memory-recall/src/memory_recall/server.py
+index 527ff95..de78ef6 100644
+--- a/packages/memory-recall/src/memory_recall/server.py
++++ b/packages/memory-recall/src/memory_recall/server.py
+@@ -19,7 +19,6 @@ ago. We surface `created_at` and `status` in every hit to make that easy.
+ from __future__ import annotations
+ 
+ import asyncio
+-import os
+ from dataclasses import asdict
+ from pathlib import Path
+ from typing import Annotated, Any

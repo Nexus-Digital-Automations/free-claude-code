@@ -1,0 +1,8 @@
+rule_id: "@typescript-eslint/no-explicit-any"
+finding_count: 12
+example:
+  file: src/types/api.ts
+  line: 23
+  column: 18
+  message: "Unexpected any. Specify a different type."
+  source: "export function parseDigest(raw: any): DigestResult {"

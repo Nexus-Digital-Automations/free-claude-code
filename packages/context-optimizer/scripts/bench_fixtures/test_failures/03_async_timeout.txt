@@ -1,0 +1,32 @@
+__________________________ test_ensure_ready_warms_model_within_timeout __________________________
+
+    @pytest.mark.asyncio
+    async def test_ensure_ready_warms_model_within_timeout(monkeypatch):
+        OllamaSupervisor._reset_for_test()
+        settings = _make_settings(ollama_warmup_max_wait_s=0.5)
+
+        async def slow_warm(*a, **kw):
+            await asyncio.sleep(2.0)
+            return True
+
+        monkeypatch.setattr(OllamaSupervisor, "_warm_model", classmethod(slow_warm))
+        monkeypatch.setattr(OllamaSupervisor, "_health_check", classmethod(lambda cls, *_: True))
+
+>       result = await OllamaSupervisor.ensure_ready(settings)
+
+tests/providers/test_ollama_supervisor.py:178:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+providers/common/ollama_supervisor.py:65: in ensure_ready
+    return await cls._refresh(settings)
+providers/common/ollama_supervisor.py:91: in _refresh
+    if not await asyncio.wait_for(cls._warm_model(api, model, ka), timeout):
+/Users/jp/.pyenv/versions/3.12.5/lib/python3.12/asyncio/tasks.py:519: in wait_for
+    return fut.result()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   raise exceptions.TimeoutError() from exc
+E   TimeoutError
+
+/Users/jp/.pyenv/versions/3.12.5/lib/python3.12/asyncio/tasks.py:516: TimeoutError
+=========================================== short test summary info ============================================
+FAILED tests/providers/test_ollama_supervisor.py::test_ensure_ready_warms_model_within_timeout - TimeoutError

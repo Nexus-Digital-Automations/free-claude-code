@@ -1,0 +1,8 @@
+rule_id: "@typescript-eslint/no-floating-promises"
+finding_count: 4
+example:
+  file: src/server/digest.ts
+  line: 142
+  column: 5
+  message: "Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator."
+  source: "fetch(url, { method: 'POST', body: payload });"

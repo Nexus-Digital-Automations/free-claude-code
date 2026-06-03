@@ -1,0 +1,9 @@
+rule_id: E712
+rule_name: comparison-to-true
+finding_count: 3
+example:
+  file: tests/test_dep_graph.py
+  line: 87
+  column: 12
+  message: "Avoid equality comparisons to `True`; use `if cond:` for truth checks"
+  source: "if cached == True:"

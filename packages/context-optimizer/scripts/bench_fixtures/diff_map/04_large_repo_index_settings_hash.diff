@@ -1,0 +1,241 @@
+commit e4cd43a829082a1558dd99d16115a1c239f66a08
+Author: Nexus-Digital-Automations <founder1@nexusdigitalautomations.com>
+Date:   Tue May 5 21:51:57 2026 -0500
+
+    Hash repo-index settings into the cache filename
+    
+    Cache key was previously the tree SHA alone. Settings that affect the
+    rendered prefix bytes (repo_index_repomix_extra_args, chunk_size_tokens,
+    chunk_overlap_tokens, embedding_model) weren't part of the key, so
+    retuning any of them while staying on the same git tree would silently
+    serve the old prefix bytes back from disk under a key DeepSeek thinks
+    is fresh — full prefix-cache miss masquerading as a hit.
+    
+    Cache key is now f"{tree_sha}-{settings_suffix}" where settings_suffix
+    is the first 8 hex chars of SHA-256 over the four fields. Filename
+    becomes repo-<sha>-<suffix>.{txt,npy,json}. Old files become orphans
+    on first run after the change and are pruned by the existing keep=3
+    LRU.
+    
+    Counterpart helpers: _cache_key, _settings_cache_suffix in index.py.
+    LoadedIndex.tree_hash now stores the combined key (it's the on-disk
+    filename component); the existing test_repo_index_ac5_disk_artifacts_written
+    test consumes it as such and stays green.
+    
+    Tests: 37/37 pass, ruff clean.
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+diff --git a/packages/context-optimizer/src/context_optimizer/repo_index/index.py b/packages/context-optimizer/src/context_optimizer/repo_index/index.py
+index d8d0980..e26d124 100644
+--- a/packages/context-optimizer/src/context_optimizer/repo_index/index.py
++++ b/packages/context-optimizer/src/context_optimizer/repo_index/index.py
+@@ -13,6 +13,7 @@ loop inside the thread.
+ 
+ from __future__ import annotations
+ 
++import hashlib
+ import os
+ import subprocess
+ import threading
+@@ -28,23 +29,30 @@ from ._types import Chunk, IndexManifest
+ from .git_watcher import get_head_tree_sha
+ 
+ # ── Module-level hot-path cache ────────────────────────────────────────────
+-# Keyed on tree SHA (HEAD^{tree}), not commit SHA — stable across --amend/rebase/reword.
++# Keyed on f"{tree_sha}-{settings_suffix}". Tree SHA alone is not enough:
++# settings that affect the rendered prefix (chunk size, embedding model,
++# repomix extra args) must also bust the cache, otherwise we'd serve a
++# stale prefix under a key DeepSeek thinks is fresh. The settings suffix
++# is a short SHA-256 of those fields. Counterpart: _settings_cache_suffix.
+ # _build_lock serialises get_or_build() so two concurrent run_in_executor calls
+ # (Layer -1 in optimizer.py is dispatched to the default thread pool) can't both
+-# miss the cache and both invoke the 20-60s build pipeline against the same SHA.
++# miss the cache and both invoke the 20-60s build pipeline against the same key.
+ _loaded_index: LoadedIndex | None = None
+-_loaded_tree_hash: str | None = None
++_loaded_cache_key: str | None = None
+ _build_lock = threading.Lock()
+ 
+ 
+ @dataclass
+ class LoadedIndex:
+-    """In-memory representation of a fully built index for one commit. Immutable after creation.
++    """In-memory representation of a fully built index. Immutable after creation.
+ 
+     # @stable — optimizer.py depends on query(), format_suffix(), and tree_hash.
+     """
+ 
+-    tree_hash: str          # git tree SHA (HEAD^{tree}), stable across --amend/rebase/reword
++    tree_hash: str          # f"{tree_sha}-{settings_suffix}" — the on-disk filename component;
++                            # tree_sha alone (HEAD^{tree}) is stable across --amend/rebase/reword,
++                            # the settings suffix invalidates on chunk/embedding/repomix-args change.
++                            # Also stored in IndexManifest.commit_hash and validated on load.
+     prefix_text: str        # frozen Repomix render — the stable system-prompt prefix
+     chunks: list[Chunk]
+     vectors: np.ndarray     # shape (N, embedding_dim), unit-normalised float32
+@@ -97,33 +105,33 @@ class RepoIndex:
+         Returns None only if repo_root is not a git repo.
+         Never raises — failures are logged and return None so callers degrade gracefully.
+         """
+-        global _loaded_index, _loaded_tree_hash
++        global _loaded_index, _loaded_cache_key
+         try:
+-            sha = get_head_tree_sha(repo_root)
+-            if sha is None:
++            cache_key = _cache_key(repo_root, settings)
++            if cache_key is None:
+                 logger.debug("REPO_INDEX: get_or_build no git repo at root={}", repo_root)
+                 return None
+ 
+             # Fast path: in-memory hit doesn't need the lock.
+-            if _loaded_tree_hash == sha and _loaded_index is not None:
++            if _loaded_cache_key == cache_key and _loaded_index is not None:
+                 return _loaded_index
+ 
+             # Serialise miss path so two concurrent threads can't both invoke
+-            # the 20-60s build for the same SHA. The second waiter re-checks
++            # the 20-60s build for the same key. The second waiter re-checks
+             # the cache after acquiring the lock.
+             with _build_lock:
+-                if _loaded_tree_hash == sha and _loaded_index is not None:
++                if _loaded_cache_key == cache_key and _loaded_index is not None:
+                     return _loaded_index
+ 
+                 loaded = cls.load(repo_root, settings)
+                 if loaded is not None:
+                     _loaded_index = loaded
+-                    _loaded_tree_hash = sha
++                    _loaded_cache_key = cache_key
+                     return loaded
+ 
+                 built = cls.build(repo_root, settings)
+                 _loaded_index = built
+-                _loaded_tree_hash = sha
++                _loaded_cache_key = cache_key
+                 return built
+ 
+         except Exception as exc:
+@@ -136,20 +144,21 @@ class RepoIndex:
+         repo_root: str,
+         settings: ContextOptimizerSettings,
+     ) -> LoadedIndex | None:
+-        """Load an existing index for the current HEAD SHA from disk. Does NOT build.
++        """Load an existing index for the current cache key from disk. Does NOT build.
+ 
+-        Returns None if no index exists for the current commit (normal on first run).
++        Returns None if no index exists for the current key (normal on first run, or
++        whenever a relevant setting changed since the last build).
+         """
+-        sha = get_head_tree_sha(repo_root)
+-        if sha is None:
++        cache_key = _cache_key(repo_root, settings)
++        if cache_key is None:
+             return None
+         context_dir = _resolve_context_dir(repo_root, settings)
+-        result = embedder.load_index(context_dir, sha)
++        result = embedder.load_index(context_dir, cache_key)
+         if result is None:
+             return None
+         prefix_text, chunks, vectors, manifest = result
+-        logger.info("REPO_INDEX: loaded from disk tree={} chunks={}", sha[:7], len(chunks))
+-        return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
++        logger.info("REPO_INDEX: loaded from disk key={} chunks={}", cache_key[:16], len(chunks))
++        return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+ 
+     @classmethod
+     def build(
+@@ -168,18 +177,18 @@ class RepoIndex:
+         Never returns None — raises on unrecoverable failure.
+         # @stable
+         """
+-        sha = get_head_tree_sha(repo_root)
+-        if sha is None:
++        cache_key = _cache_key(repo_root, settings)
++        if cache_key is None:
+             raise RuntimeError(f"Not a git repo or no commits: {repo_root}")
+ 
+         context_dir = _resolve_context_dir(repo_root, settings)
+ 
+         if not force:
+-            existing = embedder.load_index(context_dir, sha)
++            existing = embedder.load_index(context_dir, cache_key)
+             if existing is not None:
+                 prefix_text, chunks, vectors, manifest = existing
+-                logger.info("REPO_INDEX: build cache_hit tree={}", sha[:7])
+-                return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
++                logger.info("REPO_INDEX: build cache_hit key={}", cache_key[:16])
++                return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+ 
+         file_paths = _list_tracked_files(repo_root)
+         if not file_paths:
+@@ -189,8 +198,8 @@ class RepoIndex:
+         token_ceiling = _compute_token_ceiling(settings, n_tracked)
+         effective_top_n = _compute_effective_top_n(settings, n_tracked)
+         logger.info(
+-            "REPO_INDEX: build start tree={} tracked={} mass_target={} top_n={} token_ceiling={}",
+-            sha[:7], n_tracked, settings.repo_index_pagerank_mass_target,
++            "REPO_INDEX: build start key={} tracked={} mass_target={} top_n={} token_ceiling={}",
++            cache_key[:16], n_tracked, settings.repo_index_pagerank_mass_target,
+             effective_top_n, token_ceiling,
+         )
+ 
+@@ -215,7 +224,7 @@ class RepoIndex:
+         vectors = embedder.embed_chunks(chunks, model_name=settings.repo_index_embedding_model)
+ 
+         manifest = IndexManifest(
+-            commit_hash=sha,  # IndexManifest.commit_hash is a JSON key on disk — kept as-is
++            commit_hash=cache_key,  # IndexManifest.commit_hash is a JSON key on disk — kept as-is
+             repo_root=repo_root,
+             top_n=len(top_files),
+             ranked_files=top_files,
+@@ -223,16 +232,46 @@ class RepoIndex:
+             build_timestamp_utc=datetime.now(timezone.utc).isoformat(),
+             embedding_model=settings.repo_index_embedding_model,
+         )
+-        embedder.save_index(prefix_text, chunks, vectors, manifest, context_dir, sha)
++        embedder.save_index(prefix_text, chunks, vectors, manifest, context_dir, cache_key)
+         embedder.prune_old_indexes(context_dir, keep=3)
+ 
+-        logger.info("REPO_INDEX: build done tree={} files={} chunks={}", sha[:7], len(top_files), len(chunks))
+-        return LoadedIndex(tree_hash=sha, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
++        logger.info("REPO_INDEX: build done key={} files={} chunks={}", cache_key[:16], len(top_files), len(chunks))
++        return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+ 
+ 
+ # ── Helpers ────────────────────────────────────────────────────────────────
+ 
+ 
++def _cache_key(repo_root: str, settings: ContextOptimizerSettings) -> str | None:
++    """Combined cache key: f"{tree_sha}-{settings_suffix}".
++
++    Returns None when the repo has no tree SHA (not a git repo, no commits).
++    Settings change → suffix changes → load_index returns None → one rebuild.
++    """
++    sha = get_head_tree_sha(repo_root)
++    if sha is None:
++        return None
++    return f"{sha}-{_settings_cache_suffix(settings)}"
++
++
++def _settings_cache_suffix(settings: ContextOptimizerSettings) -> str:
++    """8-char SHA-256 prefix over settings that affect the rendered prefix bytes.
++
++    Bumping any of these without changing the tree SHA must invalidate the cache;
++    embedding the hash into the filename is the simplest way to ensure
++    embedder.load_index returns None when the user retunes the prefix.
++
++    # EXTENSION POINT: add new repo-index settings that influence prefix bytes here.
++    """
++    fields = (
++        tuple(settings.repo_index_repomix_extra_args),
++        settings.repo_index_chunk_size_tokens,
++        settings.repo_index_chunk_overlap_tokens,
++        settings.repo_index_embedding_model,
++    )
++    return hashlib.sha256(repr(fields).encode("utf-8")).hexdigest()[:8]
++
++
+ def _resolve_context_dir(repo_root: str, settings: ContextOptimizerSettings) -> str:
+     if settings.repo_index_context_dir:
+         return settings.repo_index_context_dir

@@ -1,0 +1,32 @@
+_____________________________________ test_digest_cache_hits_skip_ollama _____________________________________
+
+    @pytest.mark.asyncio
+    async def test_digest_cache_hits_skip_ollama(monkeypatch):
+        digest_core.reset_for_test()
+        call_count = 0
+
+        async def fake_call(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            return "<digest>summarised body</digest>"
+
+        monkeypatch.setattr(digest_core, "_call_ollama", fake_call)
+
+        cfg = _DigestConfig()
+        for _ in range(3):
+            out = await digest_core.digest(
+                content="same body",
+                build_prompt=lambda x: x,
+                parse_response=lambda x: x,
+                config=cfg,
+                cache_max_entries=200,
+            )
+            assert out == "<digest>summarised body</digest>"
+
+>       assert call_count == 1, f"expected 1 ollama call, got {call_count}"
+E       AssertionError: expected 1 ollama call, got 3
+E       assert 3 == 1
+
+packages/context-optimizer/tests/test_digest_core.py:64: AssertionError
+=========================================== short test summary info ============================================
+FAILED packages/context-optimizer/tests/test_digest_core.py::test_digest_cache_hits_skip_ollama - AssertionError: expected 1 ollama call, got 3

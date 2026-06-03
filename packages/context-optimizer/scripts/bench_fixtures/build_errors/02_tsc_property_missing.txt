@@ -1,0 +1,25 @@
+src/components/DiffViewer.tsx:34:23 - error TS2339: Property 'lines_added' does not exist on type 'PerFileSummary'. Did you mean 'linesAdded'?
+
+34   const totalAdded = files.reduce((sum, f) => sum + f.lines_added, 0);
+                         ~~~~~~~~~~~
+
+  src/types/diff.ts:8:3
+    8   linesAdded: number;
+        ~~~~~~~~~~
+    'linesAdded' is declared here.
+
+src/components/DiffViewer.tsx:48:11 - error TS2322: Type 'string | null' is not assignable to type 'string'.
+  Type 'null' is not assignable to type 'string'.
+
+48     title: summary,
+             ~~~~~
+
+  src/components/DiffViewer.tsx:46:3
+    46   title: string;
+         ~~~~~
+    The expected type comes from property 'title' which is declared here on type 'CardProps'.
+
+Found 2 errors in 1 file.
+
+Errors  Files
+     2  src/components/DiffViewer.tsx:34

@@ -1,0 +1,11 @@
+rule_id: PLW2901
+rule_name: redefined-loop-name
+finding_count: 1
+example:
+  file: packages/context-optimizer/src/context_optimizer/tiers/tier0b.py
+  line: 104
+  column: 9
+  message: "`for` loop variable `msg` overwritten by assignment target"
+  source: |
+    for msg in messages:
+        msg = _normalise(msg)

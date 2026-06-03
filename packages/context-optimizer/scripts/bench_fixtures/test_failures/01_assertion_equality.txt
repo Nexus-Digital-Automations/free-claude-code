@@ -1,0 +1,23 @@
+______________________________ test_split_by_file_returns_named_chunks ______________________________
+
+    def test_split_by_file_returns_named_chunks():
+        raw = (
+            "diff --git a/a.py b/a.py\n"
+            "@@ -1 +1 @@\n"
+            "-x = 1\n"
+            "+x = 2\n"
+            "diff --git a/b.py b/b.py\n"
+            "@@ -1 +1 @@\n"
+            "-y = 1\n"
+            "+y = 2\n"
+        )
+        chunks = _split_by_file(raw)
+>       assert [name for name, _ in chunks] == ["a.py", "b.py"]
+E       AssertionError: assert ['a.py'] == ['a.py', 'b.py']
+E         Right contains one more item: 'b.py'
+E         Use -v to get more diff
+
+tests/test_diff_summary.py:87: AssertionError
+=========================================== short test summary info ============================================
+FAILED tests/test_diff_summary.py::test_split_by_file_returns_named_chunks - AssertionError: assert ['a.py'] == ['a.py', 'b.py']
+1 failed, 47 passed in 1.82s
