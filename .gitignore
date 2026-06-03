@@ -15,3 +15,22 @@ debug-*.log
 llama_cache
 .smoke-results
 .vscode
+
+# OS / editor / agent-tool clutter
+.DS_Store
+.swarm/
+aider/
+.file-size-ignore
+# stray root ruff config that would shadow pyproject [tool.ruff]
+ruff.toml
+
+# generated artifacts
+.context/
+output/
+ruvector.db
+error_catalog.json
+lessons.json
+packages/context-optimizer/logs/
+
+# vendored reference project (Headroom — see specs/upstream-full-rebase.md Part 2)
+docs/headroom/
