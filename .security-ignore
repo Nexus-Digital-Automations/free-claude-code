@@ -20,3 +20,8 @@ packages/context-optimizer/.mypy_cache/**
 
 # Generated runtime logs — not source code.
 logs/**
+
+# The scanner's own report artifacts under .claude/ (gitignored local config,
+# not project source). Their JSON/markdown quotes finding text like "verify=False"
+# and fake fixture keys, which re-triggers the scanner on its own output.
+[tool:pattern-scanner] .claude/**
