@@ -5,6 +5,7 @@ from __future__ import annotations
 import traceback
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
@@ -18,6 +19,7 @@ from core.trace import api_messages_request_snapshot, trace_event, traced_async_
 from providers.base import BaseProvider
 from providers.exceptions import InvalidRequestError, ProviderError
 
+from .context_optimization import ContextOptimizer
 from .model_router import ModelRouter
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import TokenCountResponse
@@ -99,7 +101,7 @@ class ClaudeProxyService:
         self._model_router = model_router or ModelRouter(settings)
         self._token_counter = token_counter
 
-    def create_message(self, request_data: MessagesRequest) -> object:
+    async def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
         try:
             _require_non_empty_messages(request_data.messages)
@@ -149,6 +151,33 @@ class ClaudeProxyService:
                 return optimized
             logger.debug("No optimization matched, routing to provider")
 
+            # Context compaction runs after the early-return short-circuits
+            # (web tools, quota mocks) and before provider dispatch so the
+            # compacted payload is what gets validated and streamed.
+            compacted_tokens: int | None = None
+            if self._settings.context_optimize:
+                try:
+                    (
+                        optimized_request,
+                        compacted_tokens,
+                    ) = await ContextOptimizer.optimize(routed.request, self._settings)
+                except Exception:
+                    trace_event(
+                        stage="compaction",
+                        event="api.compaction.error",
+                        source="api",
+                        model=routed.request.model,
+                    )
+                    raise
+                routed = replace(routed, request=optimized_request)
+                trace_event(
+                    stage="compaction",
+                    event="api.compaction.applied",
+                    source="api",
+                    model=routed.request.model,
+                    input_tokens=compacted_tokens,
+                )
+
             provider = self._provider_getter(routed.resolved.provider_id)
             provider.preflight_stream(
                 routed.request,
@@ -181,10 +210,14 @@ class ClaudeProxyService:
                         "FULL_PAYLOAD [{}]: {}", request_id, routed.request.model_dump()
                     )
 
-                input_tokens = self._token_counter(
-                    routed.request.messages,
-                    routed.request.system,
-                    routed.request.tools,
+                input_tokens = (
+                    compacted_tokens
+                    if compacted_tokens is not None
+                    else self._token_counter(
+                        routed.request.messages,
+                        routed.request.system,
+                        routed.request.tools,
+                    )
                 )
 
                 streamed = traced_async_stream(

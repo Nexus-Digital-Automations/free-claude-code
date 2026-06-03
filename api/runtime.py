@@ -88,6 +88,7 @@ class AppRuntime:
     app: FastAPI
     settings: Settings
     _provider_registry: ProviderRegistry | None = field(default=None, init=False)
+    _ollama_warmup_task: asyncio.Task[bool] | None = field(default=None, init=False)
     messaging_platform: MessagingPlatform | None = None
     message_handler: ClaudeMessageHandler | None = None
     cli_manager: CLISessionManager | None = None
@@ -109,6 +110,7 @@ class AppRuntime:
             warn_if_process_auth_token(self.settings)
             await self._validate_configured_models_best_effort()
             self._provider_registry.start_model_list_refresh(self.settings)
+            await self._warm_up_ollama()
             await self._start_messaging_if_configured()
             self._publish_state()
             logging.getLogger("uvicorn.error").info(
@@ -136,6 +138,32 @@ class AppRuntime:
                 "server will continue and requests will fail at provider resolution "
                 "when config is incomplete. {}",
                 exc.message,
+            )
+
+    async def _warm_up_ollama(self) -> None:
+        """Bounded supervisor warm-up before accepting requests.
+
+        Waits up to settings.ollama_warmup_max_wait_s for the daemon + model;
+        on timeout the rest of the warm-up runs in the background so a missing
+        Ollama never blocks proxy startup. No-op when compaction is disabled.
+        Counterpart: context_optimizer.ollama_supervisor.OllamaSupervisor.
+        """
+        if not self.settings.context_optimize:
+            return
+        from context_optimizer.ollama_supervisor import OllamaSupervisor
+
+        timeout_s = self.settings.ollama_warmup_max_wait_s
+        try:
+            ready = await asyncio.wait_for(
+                OllamaSupervisor.ensure_ready(self.settings), timeout=timeout_s
+            )
+            logger.info("OLLAMA: warmup_done ready={}", ready)
+        except TimeoutError:
+            logger.warning("OLLAMA: warmup_timeout timeout_s={}", timeout_s)
+            # Hand the remaining warm-up to the background; requests degrade to
+            # mechanical truncation until the model is resident.
+            self._ollama_warmup_task = asyncio.create_task(
+                OllamaSupervisor.ensure_ready(self.settings)
             )
 
     async def shutdown(self) -> None:

@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     vertex_proxy: str = Field(default="", validation_alias="VERTEX_PROXY")
 
     # ==================== Context optimization (fork) ====================
-    # Counterpart: packages/context-optimizer + core/context/optimizer_adapter.py.
+    # Counterpart: packages/context-optimizer + api/context_optimization.py.
     context_optimize: bool = Field(default=True, validation_alias="CONTEXT_OPTIMIZE")
     context_max_thinking_turns: int = Field(
         default=1, validation_alias="CONTEXT_MAX_THINKING_TURNS"

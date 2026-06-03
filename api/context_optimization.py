@@ -4,6 +4,8 @@ Owns: converting proxy Pydantic models <-> plain dicts and calling the
 standalone context_optimizer package. Owns nothing else.
 
 Does NOT own: tier logic, caching, Ollama management — all in the package.
+Lives under api/ (not core/) because it binds to api.models.anthropic; core/
+must stay neutral (see tests/contracts/test_import_boundaries.py).
 Called by: api/services.py ClaudeProxyService.create_message.
 Calls: context_optimizer.ContextOptimizer.optimize (the package).
 

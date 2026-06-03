@@ -16,6 +16,10 @@ os.environ["PTB_TIMEDELTA"] = "1"
 # Ensure tests don't pick up a server API key from the repo .env
 # (tests expect endpoints to be unauthenticated by default)
 os.environ["ANTHROPIC_AUTH_TOKEN"] = ""
+# Context compaction is off by default in the proxy unit suite: it reaches a
+# live Ollama daemon and the package's own tests cover the tier logic. Tests
+# that exercise compaction opt in explicitly.
+os.environ.setdefault("CONTEXT_OPTIMIZE", "0")
 
 Settings.model_config = {**Settings.model_config, "env_file": None}
 
