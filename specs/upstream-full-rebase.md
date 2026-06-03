@@ -186,3 +186,25 @@ to keep it green; re-restore with `git checkout pre-rebase-2026-06 -- providers/
 
 ### Still pending: P6 (per-project overrides → model_router), P7 (optimization_handlers reconcile),
 P8 (messaging, hard gate), P9 (scripts + MIGRATION), version bump, cutover.
+
+## Progress update 3 (P5–P7 done; paused at P8)
+
+- **P5 done** (`3916ba4`) — Vertex ported onto `OpenAIChatTransport` + `reasoning_replay`;
+  ty-strict ADC auth (typed `Credentials`, no `# type: ignore`); registered in
+  catalog/registry/ids/admin-manifest; google-auth in vertex extra + dev group.
+  Upstream gemini kept. 1490 tests.
+- **P6 done** (`c370014`) — per-project model overrides re-platformed onto `model_router`.
+  Key correction vs the fork: the config import-boundary contract forbids `config`→`api`,
+  so `Settings.resolve_model(project_cwd=...)` takes cwd as a **parameter** (pure-config
+  loader, lazy-imported) and `ModelRouter.resolve` (api layer) reads the `current_project_cwd`
+  ContextVar and passes it down. Header dep validates absolute/exists/under-$HOME. 1514 tests.
+- **P7 done** — **no-op by convergence**: upstream's `optimization_handlers.py` already has
+  every fork handler (prefix/quota/title/suggestion/filepath) with identical behavior, already
+  wired into `services.py`. The diff was a pure refactor (`_text_response` extraction). Nothing
+  to port.
+
+**Paused before P8 (messaging).** Remaining: P8 messaging reconcile + AppRuntime wiring
+(hard cutover gate — needs Discord/Telegram creds for the live round-trip), P9 (cc-provider
+scripts + MIGRATION.md), the consolidated semver bump in pyproject + `uv lock`, then cutover
+(reset `main` + force-push, with user confirmation). Branch `rebase/onto-upstream` is green
+(ruff + ty + 1514 pytest) at every committed phase.
