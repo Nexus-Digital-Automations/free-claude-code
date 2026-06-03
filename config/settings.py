@@ -582,12 +582,32 @@ class Settings(BaseSettings):
         """Extract the actual model name from the default model string."""
         return Settings.parse_model_name(self.model)
 
-    def resolve_model(self, claude_model_name: str) -> str:
+    def resolve_model(
+        self, claude_model_name: str, project_cwd: Path | None = None
+    ) -> str:
         """Resolve a Claude model name to the configured provider/model string.
 
-        Classifies the incoming Claude model (opus/sonnet/haiku) and
-        returns the model-specific override if configured, otherwise the fallback MODEL.
+        Resolution order, highest precedence first:
+          1. Per-project override from `<project_cwd>/.claude/settings.json`
+             (and `.local.json`), under `freeClaudeCode.models.<tier>` or
+             `freeClaudeCode.models.default`.
+          2. Tier-specific env override (MODEL_OPUS / MODEL_SONNET / MODEL_HAIKU).
+          3. Global MODEL fallback.
+
+        `project_cwd` is None when the request carried no valid
+        `X-Free-Claude-Project` header — behavior then matches the base impl.
         """
+        if project_cwd is not None:
+            # Lazy import: project_settings is pure-config (imports nothing from
+            # settings.py); keep it local to avoid any early-import surprises.
+            from .project_settings import load_project_settings
+
+            project = load_project_settings(project_cwd)
+            if project is not None:
+                override = project.model_for(claude_model_name)
+                if override is not None:
+                    return override
+
         name_lower = claude_model_name.lower()
         if "opus" in name_lower and self.model_opus is not None:
             return self.model_opus

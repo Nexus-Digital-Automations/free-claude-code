@@ -9,6 +9,7 @@ from loguru import logger
 from config.provider_ids import SUPPORTED_PROVIDER_IDS
 from config.settings import Settings
 
+from .context import current_project_cwd
 from .gateway_model_ids import decode_gateway_model_id
 from .models.anthropic import MessagesRequest, TokenCountRequest
 
@@ -67,7 +68,9 @@ class ModelRouter:
                 thinking_enabled=thinking_enabled,
             )
 
-        provider_model_ref = self._settings.resolve_model(claude_model_name)
+        provider_model_ref = self._settings.resolve_model(
+            claude_model_name, project_cwd=current_project_cwd.get()
+        )
         thinking_enabled = self._settings.resolve_thinking(claude_model_name)
         provider_id = Settings.parse_provider_type(provider_model_ref)
         provider_model = Settings.parse_model_name(provider_model_ref)

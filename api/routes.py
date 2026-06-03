@@ -9,7 +9,11 @@ from core.trace import trace_event
 from providers.registry import ProviderRegistry
 
 from . import dependencies
-from .dependencies import get_settings, require_api_key
+from .dependencies import (
+    get_project_cwd_from_header,
+    get_settings,
+    require_api_key,
+)
 from .gateway_model_ids import gateway_model_id, no_thinking_gateway_model_id
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse
@@ -168,6 +172,7 @@ async def create_message(
     request_data: MessagesRequest,
     service: ClaudeProxyService = Depends(get_proxy_service),
     _auth=Depends(require_api_key),
+    _project=Depends(get_project_cwd_from_header),
 ):
     """Create a message (always streaming)."""
     return await service.create_message(request_data)
@@ -184,6 +189,7 @@ async def count_tokens(
     request_data: TokenCountRequest,
     service: ClaudeProxyService = Depends(get_proxy_service),
     _auth=Depends(require_api_key),
+    _project=Depends(get_project_cwd_from_header),
 ):
     """Count tokens for a request."""
     return service.count_tokens(request_data)
