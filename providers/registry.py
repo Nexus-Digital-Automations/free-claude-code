@@ -136,7 +136,14 @@ def _create_cerebras(config: ProviderConfig, _settings: Settings) -> BaseProvide
     return CerebrasProvider(config)
 
 
+def _create_vertex(config: ProviderConfig, settings: Settings) -> BaseProvider:
+    from providers.vertex import VertexProvider
+
+    return VertexProvider(config, settings=settings)
+
+
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
+    "vertex": _create_vertex,
     "nvidia_nim": _create_nvidia_nim,
     "open_router": _create_open_router,
     "gemini": _create_gemini,

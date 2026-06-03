@@ -246,6 +246,16 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
             "local",
         ),
     ),
+    # Vertex AI Model Garden (Gemma) over OpenAI-compatible /chat/completions.
+    # Keyless: auth is ADC/static-token via an httpx hook, so no credential_env;
+    # the regional base URL is computed by VertexProvider from VERTEX_* settings.
+    "vertex": ProviderDescriptor(
+        provider_id="vertex",
+        transport_type="openai_chat",
+        static_credential="placeholder",
+        proxy_attr="vertex_proxy",
+        capabilities=("chat", "streaming", "tools", "thinking", "rate_limit"),
+    ),
 }
 
 # Key order:
