@@ -220,6 +220,18 @@ onto upstream's messaging (most work), or a hybrid. Whichever path, acceptance n
 live Discord/Telegram round-trip (creds). **P9 (scripts + MIGRATION) was done out of order
 since it's credential-free** — see `34e9143`.
 
+**DECIDED 2026-06-03: keep upstream messaging.** The rebase adopts upstream's messaging
+unchanged (already present + wired in `AppRuntime`), so **P8 requires no code change**. The
+fork's conversation-tree refactor (`messaging/trees/processor.py` + `repository.py` and the
+`handler`/`limiter`/`queue_manager` rewrites) is deferred to a **separate follow-up feature**,
+not part of this rebase. A live messaging round-trip is still worth running at cutover as a
+sanity check, but nothing rebase-specific changed messaging.
+
+## FOLLOW-UP (post-rebase, separate from this plan)
+
+- Port the fork's multi-user conversation-tree messaging refactor onto upstream's messaging
+  (deferred from P8). Requires Discord/Telegram creds for live validation.
+
 **Paused before P8 (messaging).** Remaining: P8 messaging reconcile + AppRuntime wiring
 (hard cutover gate — needs Discord/Telegram creds for the live round-trip), P9 (cc-provider
 scripts + MIGRATION.md), the consolidated semver bump in pyproject + `uv lock`, then cutover
