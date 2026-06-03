@@ -203,6 +203,23 @@ P8 (messaging, hard gate), P9 (scripts + MIGRATION), version bump, cutover.
   wired into `services.py`. The diff was a pure refactor (`_text_response` extraction). Nothing
   to port.
 
+### P8 finding (investigated, not started — needs a user decision)
+
+Upstream's `AppRuntime` **already wires messaging** (`_start_messaging_if_configured`), so
+there is no lifecycle wiring to do. But fork vs upstream `messaging/` have **diverged in both
+directions** (25 files, ~1466 ins / 1134 del):
+- Fork-only: `messaging/trees/processor.py`, `messaging/trees/repository.py` (multi-user
+  conversation-tree refactor); heavily rewritten `handler.py`, `limiter.py`, `queue_manager.py`.
+- Upstream-only (the fork deleted these): `cli_event_constants.py`, `command_dispatcher.py`,
+  `node_event_pipeline.py`, `rendering/markdown_tables.py`, `rendering/profiles.py`,
+  `safe_diagnostics.py`, `ui_updates.py`, `voice.py`.
+
+This is a true 3-way reconcile, not a port. **Decision needed first:** keep upstream's
+messaging as-is (simplest, loses the fork's tree refactor), port the fork's tree refactor
+onto upstream's messaging (most work), or a hybrid. Whichever path, acceptance needs the
+live Discord/Telegram round-trip (creds). **P9 (scripts + MIGRATION) was done out of order
+since it's credential-free** — see `34e9143`.
+
 **Paused before P8 (messaging).** Remaining: P8 messaging reconcile + AppRuntime wiring
 (hard cutover gate — needs Discord/Telegram creds for the live round-trip), P9 (cc-provider
 scripts + MIGRATION.md), the consolidated semver bump in pyproject + `uv lock`, then cutover
