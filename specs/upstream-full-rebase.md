@@ -147,3 +147,42 @@ Findings that change the remaining work:
 - **Messaging round-trip** (hard cutover gate) needs Discord/Telegram bot credentials.
 - **Provider smoke matrix** needs API keys (deepseek/vertex/gemini/nim/openrouter/lmstudio).
 - **Cutover** is a force-push of `main`; requires explicit user confirmation.
+
+## Progress update 2 (P4 done, P5 scoped)
+
+- **P4 done** (`22f06aa`) — context-optimizer fully wired into the async request path
+  (`api/context_optimization.py` + `ClaudeProxyService.create_message` async + `AppRuntime`
+  ollama warm-up + `core/trace` compaction events). **Full suite: 1481 passed; ruff + ty clean.**
+  Note: the adapter had to live in `api/` not `core/` — the `core/` neutrality contract
+  (`tests/contracts/test_import_boundaries.py`) forbids importing `api.models`.
+- Proxy unit suite now defaults `CONTEXT_OPTIMIZE=0` (`tests/conftest.py`); compaction has no
+  live Ollama in CI and the package owns its tier tests.
+
+### P5 (Vertex) — exact remaining steps (parked clean; files restorable from tag)
+
+The fork's `providers/vertex/` + `tests/providers/test_vertex.py` were removed from the branch
+to keep it green; re-restore with `git checkout pre-rebase-2026-06 -- providers/vertex tests/providers/test_vertex.py`. Then:
+
+1. `providers/vertex/request.py`: `from providers.common.message_converter import build_base_request_body`
+   → `from core.anthropic.conversion import build_base_request_body, ReasoningReplayMode`; replace
+   `build_base_request_body(request, include_thinking=thinking_enabled)` with
+   `build_base_request_body(request, reasoning_replay=ReasoningReplayMode.THINK_TAGS if thinking_enabled else ReasoningReplayMode.DISABLED)`
+   (Gemma is a plain OpenAI-compat endpoint, no `reasoning_content` — THINK_TAGS, not REASONING_CONTENT).
+2. `providers/vertex/client.py`: `OpenAICompatibleProvider` → `OpenAIChatTransport` (import + base);
+   change `_build_request_body(self, request)` → `_build_request_body(self, request, thinking_enabled=None)`
+   passing `thinking_enabled=self._is_thinking_enabled(request, thinking_enabled)` (mirror
+   `providers/nvidia_nim/client.py:36`). Hooks `self._client`, `self._base_url`, `cleanup` all exist on the new base.
+3. `config/provider_catalog.py`: add a `"vertex"` `ProviderDescriptor` — `transport_type=<OPENAI_CHAT enum>`,
+   `capabilities=(…)` (mirror nvidia_nim), `credential_env=None` (ADC, keyless → skips `_require_credential`),
+   `static_credential="placeholder"`, `proxy_attr="vertex_proxy"`, `default_base_url=None` (VertexProvider
+   computes its regional URL from settings).
+4. `config/provider_ids.py`: add `"vertex"` to `SUPPORTED_PROVIDER_IDS`.
+5. `providers/registry.py`: add `_create_vertex(config, settings)` returning `VertexProvider(config, settings=settings)`
+   and `PROVIDER_FACTORIES["vertex"]` (the descriptors/factories/ids sync-assertion will enforce all three).
+6. `api/services.py`: add `"vertex"` to `_OPENAI_CHAT_UPSTREAM_IDS` (vertex is /chat/completions, not native Messages).
+7. `.env.example`: document `VERTEX_*` vars.
+8. Validate: re-restored `tests/providers/test_vertex.py` (its `_build_base_url`/`_parse_models`/auth imports are
+   unaffected; only a docstring mentions the old base name). ruff + ty + full suite.
+
+### Still pending: P6 (per-project overrides → model_router), P7 (optimization_handlers reconcile),
+P8 (messaging, hard gate), P9 (scripts + MIGRATION), version bump, cutover.
