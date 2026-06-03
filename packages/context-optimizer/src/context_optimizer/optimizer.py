@@ -55,7 +55,9 @@ def _resolve_repo_root(settings: ContextOptimizerSettings) -> str:
     try:
         r = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip()
@@ -72,13 +74,16 @@ def _extract_last_user_text(messages: list[dict]) -> str:
                 return content
             if isinstance(content, list):
                 return " ".join(
-                    b.get("text", "") for b in content
+                    b.get("text", "")
+                    for b in content
                     if isinstance(b, dict) and b.get("type") == "text"
                 )
     return ""
 
 
-def _prepend_repo_context(prefix_text: str, suffix: str, system: str | list | None) -> str | list:
+def _prepend_repo_context(
+    prefix_text: str, suffix: str, system: str | list | None
+) -> str | list:
     block = prefix_text + ("\n\n---\n\n" + suffix if suffix else "") + "\n\n---\n\n"
     if system is None:
         return block
@@ -98,7 +103,9 @@ _BLOCK_TOWER_HEADER = (
 )
 
 
-def _prepend_block_tower(block_bodies: list[str], system: str | list | None) -> str | list:
+def _prepend_block_tower(
+    block_bodies: list[str], system: str | list | None
+) -> str | list:
     """Prepend a tower of frozen block bodies to the system prompt.
 
     Bodies are joined with a separator and prefixed with a single fixed
@@ -154,6 +161,7 @@ class ContextOptimizer:
         if settings.repo_index_enabled:
             try:
                 from .repo_index import RepoIndex  # noqa: PLC0415
+
                 repo_root = _resolve_repo_root(settings)
                 loop = asyncio.get_running_loop()
                 loaded = await loop.run_in_executor(
@@ -161,23 +169,27 @@ class ContextOptimizer:
                 )
                 if loaded is not None:
                     last_user_text = _extract_last_user_text(messages)
-                    results = loaded.query(last_user_text, top_k=settings.repo_index_query_top_k)
+                    results = loaded.query(
+                        last_user_text, top_k=settings.repo_index_query_top_k
+                    )
                     system = _prepend_repo_context(
                         loaded.prefix_text, loaded.format_suffix(results), system
                     )
                     logger.info(
                         "REPO_INDEX: prefix_applied prefix_bytes={} suffix_chunks={} tree={}",
-                        len(loaded.prefix_text), len(results), loaded.tree_hash[:7],
+                        len(loaded.prefix_text),
+                        len(results),
+                        loaded.tree_hash[:7],
                     )
             except Exception as exc:
                 logger.warning(
-                    "REPO_INDEX: layer-1 failed, skipping — {}: {}", type(exc).__name__, exc
+                    "REPO_INDEX: layer-1 failed, skipping — {}: {}",
+                    type(exc).__name__,
+                    exc,
                 )
 
         # --- Tier 0: free NLP cleanup ---
-        before_bytes = sum(
-            len(str(m.get("content", ""))) for m in messages
-        )
+        before_bytes = sum(len(str(m.get("content", ""))) for m in messages)
         msgs = tier0.apply(
             messages,
             settings.tier0_max_lines,
@@ -188,7 +200,9 @@ class ContextOptimizer:
         if before_bytes != after_bytes:
             logger.info(
                 "CONTEXT_OPT: tier0 bytes_before={} bytes_after={} saved={}",
-                before_bytes, after_bytes, before_bytes - after_bytes,
+                before_bytes,
+                after_bytes,
+                before_bytes - after_bytes,
             )
 
         # --- Tier 0b: Ollama tool-result digest ---
@@ -220,7 +234,9 @@ class ContextOptimizer:
         if before_e != after_e:
             logger.info(
                 "CONTEXT_OPT: tier0e bytes_before={} bytes_after={} saved={}",
-                before_e, after_e, before_e - after_e,
+                before_e,
+                after_e,
+                before_e - after_e,
             )
 
         # --- Tier 0f: span-level Rabin-Karp dedup ---
@@ -234,7 +250,9 @@ class ContextOptimizer:
         if before_f != after_f:
             logger.info(
                 "CONTEXT_OPT: tier0f bytes_before={} bytes_after={} saved={}",
-                before_f, after_f, before_f - after_f,
+                before_f,
+                after_f,
+                before_f - after_f,
             )
 
         # --- Tier 1: thinking-block strip ---
@@ -253,12 +271,18 @@ class ContextOptimizer:
         if settings.block_selection_mode != "off":
             try:
                 msgs, sys, tokens = await _apply_block_tower(
-                    messages, msgs, sys, tokens, tools, settings,
+                    messages,
+                    msgs,
+                    sys,
+                    tokens,
+                    tools,
+                    settings,
                 )
             except Exception as exc:
                 logger.warning(
                     "BLOCK_TOWER: layer-0 failed, skipping — {}: {}",
-                    type(exc).__name__, exc,
+                    type(exc).__name__,
+                    exc,
                 )
 
         return msgs, sys, tokens
@@ -274,6 +298,7 @@ class ContextOptimizer:
         try:
             from .block_tower import sealer, selector  # noqa: PLC0415
             from .block_tower.store import BlockStore  # noqa: PLC0415
+
             sealer.reset_for_test()
             selector.reset_for_test()
             BlockStore.reset_for_test()
@@ -337,7 +362,9 @@ async def _apply_block_tower(
         sys = _prepend_block_tower(bodies, sys)
         logger.info(
             "BLOCK_TOWER: layer0 applied session={} included={} of={}",
-            session_key[:7], len(selected), len(store.blocks),
+            session_key[:7],
+            len(selected),
+            len(store.blocks),
         )
 
     tail_start = store.blocks[-1].range_end

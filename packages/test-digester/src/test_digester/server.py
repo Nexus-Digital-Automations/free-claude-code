@@ -72,7 +72,10 @@ async def run(
     target = cwd or os.getcwd()
 
     result = await run_pytest(
-        cwd=target, filter_expr=filter, paths=paths, timeout_s=timeout_s,
+        cwd=target,
+        filter_expr=filter,
+        paths=paths,
+        timeout_s=timeout_s,
     )
     response = await _shape_response(result, verbose=verbose)
 
@@ -80,14 +83,18 @@ async def run(
     logger.info(
         "test_digester method=run cwd=%s status=%s duration_ms=%d "
         "failures=%d passed=%s",
-        os.path.basename(target.rstrip("/")), response["status"], duration_ms,
-        len(response.get("failures", [])), response.get("passed"),
+        os.path.basename(target.rstrip("/")),
+        response["status"],
+        duration_ms,
+        len(response.get("failures", [])),
+        response.get("passed"),
     )
     return response
 
 
 async def _shape_response(
-    result: RunResult, verbose: bool,
+    result: RunResult,
+    verbose: bool,
 ) -> dict[str, Any]:
     """Map RunResult -> response, digesting each failure body in parallel."""
     if result.failed is None and result.passed is None:
@@ -125,10 +132,14 @@ async def _digest_each_failure(
 
 
 async def _digest_one_failure(
-    failure: FailureRecord, config: FailureDigestConfig,
+    failure: FailureRecord,
+    config: FailureDigestConfig,
 ) -> dict[str, Any]:
     """Digest body when above threshold; otherwise keep verbatim."""
-    if len(failure.body.encode("utf-8", errors="ignore")) < _BODY_DIGEST_THRESHOLD_BYTES:
+    if (
+        len(failure.body.encode("utf-8", errors="ignore"))
+        < _BODY_DIGEST_THRESHOLD_BYTES
+    ):
         return {
             "test_id": failure.test_id,
             "file": failure.file,

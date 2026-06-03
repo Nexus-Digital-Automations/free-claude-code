@@ -78,11 +78,14 @@ def should_seal(
     if requests_since_last_seal < settings.block_seal_min_requests:
         return False
     try:
-        tail_tokens = count_tokens(tail, None, None, tokenizer_name=settings.tokenizer_name)
+        tail_tokens = count_tokens(
+            tail, None, None, tokenizer_name=settings.tokenizer_name
+        )
     except Exception as exc:
         logger.warning(
             "BLOCK_TOWER: tail token count failed, skipping seal reason={} {}",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
         return False
     return tail_tokens > settings.block_seal_min_tail_tokens
@@ -112,7 +115,9 @@ def schedule_seal_if_due(
     _inflight_sessions.add(store.session_key)
     logger.info(
         "BLOCK_TOWER: scheduling seal session={} tail_msgs={} prior_blocks={}",
-        store.session_key[:7], len(tail), len(store.blocks),
+        store.session_key[:7],
+        len(tail),
+        len(store.blocks),
     )
     task = asyncio.create_task(_run_seal(store, tail_start, tail, settings))
     _background_tasks.add(task)
@@ -134,7 +139,8 @@ def _log_background_seal_exception(task: asyncio.Task) -> None:
     if exc is not None:
         logger.warning(
             "BLOCK_TOWER: background_seal_failed reason={} {}",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
 
 
@@ -154,7 +160,9 @@ async def _run_seal(
         except (ValueError, OSError) as exc:
             logger.warning(
                 "BLOCK_TOWER: seal apply failed session={} reason={} {}",
-                store.session_key[:7], type(exc).__name__, exc,
+                store.session_key[:7],
+                type(exc).__name__,
+                exc,
             )
     finally:
         _inflight_sessions.discard(store.session_key)
@@ -191,7 +199,9 @@ async def seal_sync(
 
     logger.info(
         "BLOCK_TOWER: seal_sync session={} tail_msgs={} timeout={}s",
-        store.session_key[:7], len(tail), _SYNC_SEAL_TIMEOUT_SECONDS,
+        store.session_key[:7],
+        len(tail),
+        _SYNC_SEAL_TIMEOUT_SECONDS,
     )
     try:
         result = await asyncio.wait_for(
@@ -201,7 +211,8 @@ async def seal_sync(
     except asyncio.TimeoutError:
         logger.warning(
             "BLOCK_TOWER: seal_sync timeout session={} timeout={}s — writing placeholder",
-            store.session_key[:7], _SYNC_SEAL_TIMEOUT_SECONDS,
+            store.session_key[:7],
+            _SYNC_SEAL_TIMEOUT_SECONDS,
         )
         result = None
 
@@ -215,7 +226,9 @@ async def seal_sync(
     except (ValueError, OSError) as exc:
         logger.warning(
             "BLOCK_TOWER: seal_sync apply failed session={} reason={} {} — writing placeholder",
-            store.session_key[:7], type(exc).__name__, exc,
+            store.session_key[:7],
+            type(exc).__name__,
+            exc,
         )
         return _write_placeholder_block(store, tail_start, len(tail))
 
@@ -238,7 +251,9 @@ def _write_placeholder_block(store: BlockStore, tail_start: int, tail_len: int) 
     except (ValueError, OSError) as exc:
         logger.error(
             "BLOCK_TOWER: placeholder seal failed session={} reason={} {}",
-            store.session_key[:7], type(exc).__name__, exc,
+            store.session_key[:7],
+            type(exc).__name__,
+            exc,
         )
     return False
 
@@ -276,14 +291,17 @@ async def _compact_tail(
     except Exception as exc:
         logger.warning(
             "BLOCK_TOWER: ollama seal call failed reason={} {}: {}",
-            type(exc).__name__, type(exc).__name__, exc,
+            type(exc).__name__,
+            type(exc).__name__,
+            exc,
         )
         return None
 
     parsed = parse_seal_response(content)
     if parsed is None:
         logger.warning(
-            "BLOCK_TOWER: seal parse failed first_200={!r}", content[:200],
+            "BLOCK_TOWER: seal parse failed first_200={!r}",
+            content[:200],
         )
         return None
     return parsed

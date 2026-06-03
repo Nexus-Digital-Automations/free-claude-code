@@ -39,7 +39,9 @@ def make_extractor(language: str) -> Callable[[ParsedFile], list[RawImport]]:
     return partial(_extract_with_shape, shape=shape)
 
 
-def _extract_with_shape(parsed: ParsedFile, *, shape: ImportNodeShape) -> list[RawImport]:
+def _extract_with_shape(
+    parsed: ParsedFile, *, shape: ImportNodeShape
+) -> list[RawImport]:
     """Walk parsed.tree, yielding one RawImport per matched node.
 
     Uses tree-sitter's cursor traversal (iterative, avoids deep recursion on

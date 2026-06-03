@@ -59,7 +59,9 @@ async def find(
     ] = _DEFAULT_LIMIT,
     db_path: Annotated[
         str | None,
-        Field(description="Override index DB path. Defaults to ~/.claude/memory-index/recall.db."),
+        Field(
+            description="Override index DB path. Defaults to ~/.claude/memory-index/recall.db."
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """Return ranked plan/spec hits matching `problem`.
@@ -73,7 +75,8 @@ async def find(
     duration_ms = int((asyncio.get_event_loop().time() - started) * 1000)
     logger.info(
         "memory_recall method=find hits=%d duration_ms=%d",
-        len(hits), duration_ms,
+        len(hits),
+        duration_ms,
     )
     return {"problem": problem, "hits": [asdict(hit) for hit in hits]}
 
@@ -86,7 +89,9 @@ async def refresh(
     ],
     db_path: Annotated[
         str | None,
-        Field(description="Override index DB path. Defaults to ~/.claude/memory-index/recall.db."),
+        Field(
+            description="Override index DB path. Defaults to ~/.claude/memory-index/recall.db."
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """Walk every root and re-index its .md files.
@@ -101,7 +106,9 @@ async def refresh(
     duration_ms = int((asyncio.get_event_loop().time() - started) * 1000)
     logger.info(
         "memory_recall method=refresh roots=%d total_rows=%d duration_ms=%d",
-        len(roots), sum(counts.values()), duration_ms,
+        len(roots),
+        sum(counts.values()),
+        duration_ms,
     )
     return {"counts": counts, "db_path": str(path)}
 
@@ -119,10 +126,7 @@ def _run_refresh(db_path: Path, roots: list[str]) -> dict[str, int]:
     """Synchronous body of `refresh` so the async tool can to_thread it."""
     conn = open_index(db_path)
     try:
-        return {
-            root: refresh_directory(conn, Path(root))
-            for root in roots
-        }
+        return {root: refresh_directory(conn, Path(root)) for root in roots}
     finally:
         conn.close()
 

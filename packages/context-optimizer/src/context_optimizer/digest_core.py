@@ -131,6 +131,7 @@ async def _call_ollama(
     except Exception as exc:
         logger.warning(
             "DIGEST_CORE: ollama_call_failed type={} msg={}",
-            type(exc).__name__, str(exc)[:200],
+            type(exc).__name__,
+            str(exc)[:200],
         )
         return None

@@ -33,6 +33,7 @@ def _tool_result(content: str) -> dict:
 
 # ---- Tier 0 ----
 
+
 def test_tier0_strips_ansi_from_tool_result():
     msg = _tool_result("\x1b[31merror:\x1b[0m oops")
     result = tier0.apply([msg])
@@ -47,6 +48,7 @@ def test_tier0_dedupes_repeated_tool_results():
 
 
 # ---- Tier 1 ----
+
 
 def test_tier1_strips_thinking_from_old_turns_keeps_last_two():
     messages = []
@@ -92,6 +94,7 @@ def test_tier1_strips_all_thinking_when_keep_last_n_is_zero():
 
 # ---- Full optimize() with block tower disabled ----
 
+
 @pytest.mark.asyncio
 async def test_optimize_runs_tier0_and_tier1_when_layer0_disabled():
     """With block_selection_mode='off' the tower never loads, so tier0/1 are the only state mutators."""
@@ -103,27 +106,32 @@ async def test_optimize_runs_tier0_and_tier1_when_layer0_disabled():
     messages = []
     for i in range(6):
         messages.append(_msg("user", f"q{i}"))
-        messages.append({
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "thinking": "t"},
-                {"type": "text", "text": "ok"},
-            ],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "t"},
+                    {"type": "text", "text": "ok"},
+                ],
+            }
+        )
 
     new_msgs, _, _ = await ContextOptimizer.optimize(
         messages=messages, settings=settings
     )
 
     thinking_count = sum(
-        1 for m in new_msgs
+        1
+        for m in new_msgs
         if isinstance(m.get("content"), list)
-        for b in m["content"] if b.get("type") == "thinking"
+        for b in m["content"]
+        if b.get("type") == "thinking"
     )
     assert thinking_count == 2
 
 
 # ---- Tier 0 system-reminder dedup ----
+
 
 def test_tier0_dedupes_repeated_system_reminders_across_messages():
     reminder = "<system-reminder>CODE STANDARDS: keep files small</system-reminder>"
@@ -154,6 +162,7 @@ def test_tier0_keeps_unique_system_reminders():
 
 
 # ---- Tier 0b: Ollama tool-result digester ----
+
 
 def _long_tool_result(content: str) -> dict:
     return {
@@ -192,6 +201,7 @@ async def test_tier0b_returns_cached_digest_on_repeat_input(monkeypatch):
 
     from context_optimizer import digest_core
     from context_optimizer.ollama_supervisor import OllamaSupervisor
+
     monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
     monkeypatch.setattr(digest_core, "_call_ollama", fake_call_ollama)
 
@@ -247,10 +257,13 @@ async def test_tier0b_skips_short_tool_results():
 
 # ---- Tier 0c: tool_use input compaction ----
 
+
 def _tool_use(call_id: str, name: str, input_dict: dict) -> dict:
     return {
         "role": "assistant",
-        "content": [{"type": "tool_use", "id": call_id, "name": name, "input": input_dict}],
+        "content": [
+            {"type": "tool_use", "id": call_id, "name": name, "input": input_dict}
+        ],
     }
 
 
@@ -294,6 +307,7 @@ async def test_tier0c_keeps_recent_tool_use_calls_verbatim(monkeypatch):
 
 
 # ---- Tier 0d: long historical user-paste digester ----
+
 
 @pytest.mark.asyncio
 async def test_tier0d_skips_active_last_user_message(monkeypatch):
@@ -348,8 +362,11 @@ async def test_tier0d_skips_short_user_text():
 
 # ---- Block tower seal_sync emergency placeholder fallback ----
 
+
 @pytest.mark.asyncio
-async def test_seal_sync_writes_placeholder_when_ollama_unreachable(tmp_path, monkeypatch):
+async def test_seal_sync_writes_placeholder_when_ollama_unreachable(
+    tmp_path, monkeypatch
+):
     """When Ollama is unreachable, seal_sync writes a deterministic placeholder block.
 
     The placeholder must satisfy the same immutability invariant as a real
@@ -430,7 +447,9 @@ async def test_ac1_block_files_appear_after_emergency_seal(tmp_path, monkeypatch
     BlockStore.reset_for_test()
 
     async def fake_ensure_ready(_settings):
-        return False  # forces the deterministic placeholder path — still a real file write
+        return (
+            False  # forces the deterministic placeholder path — still a real file write
+        )
 
     monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
 
@@ -495,7 +514,9 @@ async def test_ac4_selector_skips_irrelevant_block(tmp_path, monkeypatch):
     BlockStore.reset_for_test()
     selector.reset_for_test()
     store = BlockStore.get_or_build("session_ac4", tmp_path)
-    block1 = _seal_real_block(store, 0, 3, "kafka producer config", "kafka producer setup")
+    block1 = _seal_real_block(
+        store, 0, 3, "kafka producer config", "kafka producer setup"
+    )
     block2 = _seal_real_block(store, 3, 6, "react state hook bug", "react hook bug")
 
     async def fake_ensure_ready(_s):
@@ -509,7 +530,10 @@ async def test_ac4_selector_skips_irrelevant_block(tmp_path, monkeypatch):
 
     settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
     selected = await selector.select_blocks(
-        [block1, block2], "fix my react useEffect", "session_ac4", settings,
+        [block1, block2],
+        "fix my react useEffect",
+        "session_ac4",
+        settings,
     )
 
     assert [b.block_index for b in selected] == [block2.block_index]
@@ -536,8 +560,12 @@ async def test_ac5_identical_queries_hit_selection_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(selector, "_ask_ollama", fake_ask_ollama)
 
     settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
-    await selector.select_blocks([block1, block2], "same query", "session_ac5", settings)
-    await selector.select_blocks([block1, block2], "same query", "session_ac5", settings)
+    await selector.select_blocks(
+        [block1, block2], "same query", "session_ac5", settings
+    )
+    await selector.select_blocks(
+        [block1, block2], "same query", "session_ac5", settings
+    )
 
     assert call_count["n"] == 1, "second identical call must hit the LRU cache"
 
@@ -558,7 +586,9 @@ def test_ac6_no_seal_when_request_count_below_threshold(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ac7_selector_falls_back_to_all_blocks_when_ollama_unavailable(tmp_path, monkeypatch):
+async def test_ac7_selector_falls_back_to_all_blocks_when_ollama_unavailable(
+    tmp_path, monkeypatch
+):
     """AC7: stopping ollama ⇒ selector returns every block (request still has full context)."""
     from context_optimizer.block_tower import selector
     from context_optimizer.block_tower.store import BlockStore
@@ -577,7 +607,10 @@ async def test_ac7_selector_falls_back_to_all_blocks_when_ollama_unavailable(tmp
 
     settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
     selected = await selector.select_blocks(
-        [block1, block2], "any query", "session_ac7", settings,
+        [block1, block2],
+        "any query",
+        "session_ac7",
+        settings,
     )
 
     assert [b.block_index for b in selected] == [block1.block_index, block2.block_index]
@@ -605,7 +638,10 @@ async def test_ac9_selection_mode_off_skips_layer_zero(tmp_path):
         block_selection_mode="off",
     )
     selected = await selector.select_blocks(
-        [block1, block2], "any query", "session_ac9", settings,
+        [block1, block2],
+        "any query",
+        "session_ac9",
+        settings,
     )
 
     assert selected == []
@@ -622,7 +658,9 @@ def test_ac10_ruff_clean_on_block_tower_module():
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
 
 
 # ---- Repo-index acceptance criteria (repo-index.md AC1-AC8) ----
@@ -656,8 +694,10 @@ def _init_git_repo_with_files(repo_dir: Path, files: dict[str, str]) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(content)
     env = {
-        "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@t",
+        "GIT_AUTHOR_NAME": "T",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "T",
+        "GIT_COMMITTER_EMAIL": "t@t",
         "PATH": __import__("os").environ.get("PATH", ""),
     }
     for cmd in [
@@ -677,10 +717,13 @@ def test_repo_index_ac2_build_returns_non_empty_prefix(tmp_path):
     from context_optimizer.repo_index import RepoIndex
 
     repo = tmp_path / "demo"
-    _init_git_repo_with_files(repo, {
-        "src/foo.py": "def foo():\n    return 'foo'\n",
-        "src/bar.py": "def bar():\n    return 'bar'\n",
-    })
+    _init_git_repo_with_files(
+        repo,
+        {
+            "src/foo.py": "def foo():\n    return 'foo'\n",
+            "src/bar.py": "def bar():\n    return 'bar'\n",
+        },
+    )
     settings = ContextOptimizerSettings(
         repo_index_enabled=True,
         repo_index_root=str(repo),
@@ -705,10 +748,13 @@ def test_repo_index_ac3_second_build_no_force_is_fast(tmp_path):
     from context_optimizer.repo_index import RepoIndex
 
     repo = tmp_path / "demo"
-    _init_git_repo_with_files(repo, {
-        "a.py": "x = 1\n",
-        "b.py": "y = 2\n",
-    })
+    _init_git_repo_with_files(
+        repo,
+        {
+            "a.py": "x = 1\n",
+            "b.py": "y = 2\n",
+        },
+    )
     settings = ContextOptimizerSettings(
         repo_index_enabled=True,
         repo_index_root=str(repo),
@@ -733,10 +779,13 @@ def test_repo_index_ac4_query_returns_results(tmp_path):
     from context_optimizer.repo_index import RepoIndex
 
     repo = tmp_path / "demo"
-    _init_git_repo_with_files(repo, {
-        "cache.py": "class PrefixCache:\n    '''Holds prefix bytes.'''\n    pass\n",
-        "main.py": "from cache import PrefixCache\n",
-    })
+    _init_git_repo_with_files(
+        repo,
+        {
+            "cache.py": "class PrefixCache:\n    '''Holds prefix bytes.'''\n    pass\n",
+            "main.py": "from cache import PrefixCache\n",
+        },
+    )
     settings = ContextOptimizerSettings(
         repo_index_enabled=True,
         repo_index_root=str(repo),
@@ -775,7 +824,9 @@ def test_repo_index_ac5_disk_artifacts_written(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(tmp_path, monkeypatch):
+async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(
+    tmp_path, monkeypatch
+):
     """AC6: ContextOptimizer.optimize() with repo_index_enabled=True prepends prefix to system prompt."""
     import numpy as np
 
@@ -786,7 +837,9 @@ async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(tmp_path, mo
     fake_loaded = LoadedIndex(
         tree_hash="deadbeef",
         prefix_text=fake_prefix,
-        chunks=[Chunk(source_file="fake.py", chunk_index=0, text="snippet", token_count=2)],
+        chunks=[
+            Chunk(source_file="fake.py", chunk_index=0, text="snippet", token_count=2)
+        ],
         vectors=np.zeros((1, 8), dtype=np.float32),
         manifest=IndexManifest(
             commit_hash="deadbeef",
@@ -804,7 +857,12 @@ async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(tmp_path, mo
 
     # Patch on the index module so the inline-import in optimizer.py still hits our fake.
     from context_optimizer.repo_index import index as index_module
-    monkeypatch.setattr(index_module.RepoIndex, "get_or_build", classmethod(lambda cls, *a, **k: fake_get_or_build(*a, **k)))
+
+    monkeypatch.setattr(
+        index_module.RepoIndex,
+        "get_or_build",
+        classmethod(lambda cls, *a, **k: fake_get_or_build(*a, **k)),
+    )
     # Stub query so we don't need an embedding model loaded.
     monkeypatch.setattr(LoadedIndex, "query", lambda self, q, top_k=10: [])
 
@@ -815,10 +873,14 @@ async def test_repo_index_ac6_optimize_prepends_prefix_when_enabled(tmp_path, mo
     messages = [_msg("user", "hello")]
 
     _msgs, new_system, _tokens = await ContextOptimizer.optimize(
-        messages=messages, system="You are a bot.", settings=settings,
+        messages=messages,
+        system="You are a bot.",
+        settings=settings,
     )
 
-    assert "STABLE-REPO-PREFIX" in (new_system if isinstance(new_system, str) else str(new_system))
+    assert "STABLE-REPO-PREFIX" in (
+        new_system if isinstance(new_system, str) else str(new_system)
+    )
 
 
 def test_repo_index_ac7_ruff_clean_on_repo_index_module():
@@ -832,7 +894,9 @@ def test_repo_index_ac7_ruff_clean_on_repo_index_module():
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"ruff failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
 
 
 def test_repo_index_ac8_cache_stats_handles_both_provider_shapes():
@@ -934,7 +998,8 @@ def test_tagger_extension_map_has_matching_query_for_every_language():
     languages_used = set(tagger_module._EXT_TO_LANG.values())
 
     missing = [
-        lang for lang in sorted(languages_used)
+        lang
+        for lang in sorted(languages_used)
         if not (queries_dir / f"{lang}-tags.scm").is_file()
     ]
     assert not missing, f"languages without a vendored query: {missing}"

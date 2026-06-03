@@ -115,8 +115,12 @@ class PromptShape:
 _PROMPT_REGISTRY: tuple[PromptShape, ...] = (
     PromptShape("diff_map", "diff_map", _build_diff_prompt, _MAP_TOKEN_CAP),
     PromptShape("diff_reduce", "diff_reduce", _build_reduce_prompt, _REDUCE_TOKEN_CAP),
-    PromptShape("test_failure", "test_failures", _build_failure_prompt, _TEST_FAILURE_TOKEN_CAP),
-    PromptShape("build_error", "build_errors", _build_error_prompt, _BUILD_ERROR_TOKEN_CAP),
+    PromptShape(
+        "test_failure", "test_failures", _build_failure_prompt, _TEST_FAILURE_TOKEN_CAP
+    ),
+    PromptShape(
+        "build_error", "build_errors", _build_error_prompt, _BUILD_ERROR_TOKEN_CAP
+    ),
     PromptShape("lint", "lint", _build_rule_prompt, _LINT_TOKEN_CAP),
 )
 
@@ -204,9 +208,16 @@ def _list_local_models() -> set[str]:
             text=True,
             timeout=10,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        logger.error("BENCH: ollama_list_failed type={} detail={}",
-                     type(exc).__name__, str(exc)[:200])
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        logger.error(
+            "BENCH: ollama_list_failed type={} detail={}",
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         raise
     names: set[str] = set()
     for line in result.stdout.splitlines()[1:]:  # skip header
@@ -227,9 +238,17 @@ def _pull_if_missing(model: str, local: set[str]) -> bool:
     logger.info("BENCH: pulling_model model={}", model)
     try:
         subprocess.run(["ollama", "pull", model], check=True, timeout=1800)
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        logger.error("BENCH: ollama_pull_failed model={} type={} detail={}",
-                     model, type(exc).__name__, str(exc)[:200])
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        logger.error(
+            "BENCH: ollama_pull_failed model={} type={} detail={}",
+            model,
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         return False
     return True
 
@@ -283,27 +302,55 @@ async def _run_one(
         )
     except TimeoutError:
         elapsed = time.perf_counter() - started
-        logger.warning("BENCH: timeout model={} fixture={}/{} run={} seconds={:.2f}",
-                       config.ollama_model, shape.category, fixture_name, run_index, elapsed)
+        logger.warning(
+            "BENCH: timeout model={} fixture={}/{} run={} seconds={:.2f}",
+            config.ollama_model,
+            shape.category,
+            fixture_name,
+            run_index,
+            elapsed,
+        )
         return CellResult(
-            model=config.ollama_model, category=shape.category, fixture=fixture_name,
-            run_index=run_index, output_text=None, output_chars=0,
-            output_tokens_estimate=0, latency_seconds=elapsed, status="timeout",
+            model=config.ollama_model,
+            category=shape.category,
+            fixture=fixture_name,
+            run_index=run_index,
+            output_text=None,
+            output_chars=0,
+            output_tokens_estimate=0,
+            latency_seconds=elapsed,
+            status="timeout",
         )
     elapsed = time.perf_counter() - started
     if output is None:
-        logger.warning("BENCH: digest_returned_none model={} fixture={}/{} run={}",
-                       config.ollama_model, shape.category, fixture_name, run_index)
+        logger.warning(
+            "BENCH: digest_returned_none model={} fixture={}/{} run={}",
+            config.ollama_model,
+            shape.category,
+            fixture_name,
+            run_index,
+        )
         return CellResult(
-            model=config.ollama_model, category=shape.category, fixture=fixture_name,
-            run_index=run_index, output_text=None, output_chars=0,
-            output_tokens_estimate=0, latency_seconds=elapsed, status="ollama_unavailable",
+            model=config.ollama_model,
+            category=shape.category,
+            fixture=fixture_name,
+            run_index=run_index,
+            output_text=None,
+            output_chars=0,
+            output_tokens_estimate=0,
+            latency_seconds=elapsed,
+            status="ollama_unavailable",
         )
     return CellResult(
-        model=config.ollama_model, category=shape.category, fixture=fixture_name,
-        run_index=run_index, output_text=output, output_chars=len(output),
+        model=config.ollama_model,
+        category=shape.category,
+        fixture=fixture_name,
+        run_index=run_index,
+        output_text=output,
+        output_chars=len(output),
         output_tokens_estimate=_estimate_output_tokens(output),
-        latency_seconds=elapsed, status="ok",
+        latency_seconds=elapsed,
+        status="ok",
     )
 
 
@@ -317,10 +364,16 @@ def _judge_cache_key(
     """SHA over every input that could change the rubric score, so cache
     hits are sound and a rubric-version bump invalidates everything.
     """
-    payload = "|".join([
-        _RUBRIC_VERSION, judge_model, candidate_model, category, fixture,
-        hashlib.sha256(output_text.encode("utf-8", errors="ignore")).hexdigest(),
-    ])
+    payload = "|".join(
+        [
+            _RUBRIC_VERSION,
+            judge_model,
+            candidate_model,
+            category,
+            fixture,
+            hashlib.sha256(output_text.encode("utf-8", errors="ignore")).hexdigest(),
+        ]
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -366,7 +419,10 @@ async def _judge_one(
     long is itself a benchmark signal, but we don't want a hung call to
     block the whole run.
     """
-    prompt = _RUBRIC_PROMPT % {"input": fixture_body[:8000], "digest": digest_text[:4000]}
+    prompt = _RUBRIC_PROMPT % {
+        "input": fixture_body[:8000],
+        "digest": digest_text[:4000],
+    }
     try:
         message = await asyncio.wait_for(
             client.messages.create(
@@ -377,8 +433,11 @@ async def _judge_one(
             timeout=60.0,
         )
     except (TimeoutError, anthropic.APIError) as exc:
-        logger.warning("BENCH: judge_call_failed type={} detail={}",
-                       type(exc).__name__, str(exc)[:200])
+        logger.warning(
+            "BENCH: judge_call_failed type={} detail={}",
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         return JudgeScore(0, 0, 0, "", error="api_failure")
     parts = [block.text for block in message.content if hasattr(block, "text")]
     return _parse_judge_response("\n".join(parts))
@@ -402,8 +461,11 @@ async def _judge_first_runs(
         try:
             cached = json.loads(cache_path.read_text())
         except json.JSONDecodeError as exc:
-            logger.warning("BENCH: judge_cache_corrupt clearing path={} detail={}",
-                           cache_path, str(exc)[:200])
+            logger.warning(
+                "BENCH: judge_cache_corrupt clearing path={} detail={}",
+                cache_path,
+                str(exc)[:200],
+            )
             cached = {}
     client = anthropic.AsyncAnthropic()
     out: dict[tuple[str, str, str], JudgeScore] = {}
@@ -411,7 +473,9 @@ async def _judge_first_runs(
         if cell.run_index != 0 or cell.status != "ok" or cell.output_text is None:
             continue
         body = fixture_lookup[(cell.category, cell.fixture)]
-        key = _judge_cache_key(judge_model, cell.model, cell.category, cell.fixture, cell.output_text)
+        key = _judge_cache_key(
+            judge_model, cell.model, cell.category, cell.fixture, cell.output_text
+        )
         if key in cached:
             score = JudgeScore(**cached[key])
         else:
@@ -420,9 +484,15 @@ async def _judge_first_runs(
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(cached, indent=2))
         out[(cell.model, cell.category, cell.fixture)] = score
-        logger.info("BENCH: judged model={} fixture={}/{} f={} c={} r={}",
-                    cell.model, cell.category, cell.fixture,
-                    score.faithfulness, score.conciseness, score.risk_callout)
+        logger.info(
+            "BENCH: judged model={} fixture={}/{} f={} c={} r={}",
+            cell.model,
+            cell.category,
+            cell.fixture,
+            score.faithfulness,
+            score.conciseness,
+            score.risk_callout,
+        )
     return out
 
 
@@ -445,9 +515,15 @@ async def _bench_model(
     for shape, fixture_name, body in fixtures:
         for run_index in range(runs):
             cell = await _run_one(config, shape, fixture_name, body, run_index)
-            logger.info("BENCH: cell model={} fixture={}/{} run={} status={} latency={:.2f}s",
-                        model, shape.category, fixture_name, run_index, cell.status,
-                        cell.latency_seconds)
+            logger.info(
+                "BENCH: cell model={} fixture={}/{} run={} status={} latency={:.2f}s",
+                model,
+                shape.category,
+                fixture_name,
+                run_index,
+                cell.status,
+                cell.latency_seconds,
+            )
             results.append(cell)
     return results
 
@@ -476,13 +552,13 @@ def _summarise_per_model(
             if c.status == "ok" and c.output_tokens_estimate > _cap_for(c.category)
         )
         scored = [
-            score for (m, _, _), score in judge_scores.items()
+            score
+            for (m, _, _), score in judge_scores.items()
             if m == model and score.error is None
         ]
         if scored:
             quality_raw = statistics.mean(
-                (s.faithfulness + s.conciseness + s.risk_callout) / 3
-                for s in scored
+                (s.faithfulness + s.conciseness + s.risk_callout) / 3 for s in scored
             )
             quality_norm = (quality_raw - 1.0) / 4.0  # 1..5 -> 0..1
         else:
@@ -497,7 +573,8 @@ def _summarise_per_model(
             "quality_normalised": quality_norm,
             "judge_scored_cells": len(scored),
             "judge_errors": sum(
-                1 for (m, _, _), s in judge_scores.items()
+                1
+                for (m, _, _), s in judge_scores.items()
                 if m == model and s.error is not None
             ),
         }
@@ -544,7 +621,9 @@ def _composite_score(per_model: dict[str, dict]) -> dict[str, float]:
     judge call failed) fall back to quality=0.5 so they don't flatline
     the ranking purely on a judge-side outage.
     """
-    latencies = [v["p95_latency"] for v in per_model.values() if v["p95_latency"] is not None]
+    latencies = [
+        v["p95_latency"] for v in per_model.values() if v["p95_latency"] is not None
+    ]
     if not latencies:
         return {model: 0.0 for model in per_model}
     lo, hi = min(latencies), max(latencies)
@@ -557,9 +636,7 @@ def _composite_score(per_model: dict[str, dict]) -> dict[str, float]:
         if quality is None:
             quality = 0.5
         out[model] = (
-            0.5 * quality
-            + 0.3 * (1.0 - latency_norm)
-            + 0.2 * summary["stability"]
+            0.5 * quality + 0.3 * (1.0 - latency_norm) + 0.2 * summary["stability"]
         )
     return out
 
@@ -574,9 +651,13 @@ def _flags_for(summary: dict) -> list[str]:
             f"stability {summary['stability']:.2f} (digest text drifted between runs at temp=0)"
         )
     if summary["cap_violations"] > 1:
-        flags.append(f"{summary['cap_violations']} cap violations (output exceeded prompt's stated token budget)")
+        flags.append(
+            f"{summary['cap_violations']} cap violations (output exceeded prompt's stated token budget)"
+        )
     if summary["fail_count"] > 0:
-        flags.append(f"{summary['fail_count']} failed cells (timeout / Ollama unreachable / parse error)")
+        flags.append(
+            f"{summary['fail_count']} failed cells (timeout / Ollama unreachable / parse error)"
+        )
     if summary["judge_errors"] > 0:
         flags.append(f"{summary['judge_errors']} cells the judge could not score")
     return flags
@@ -599,18 +680,26 @@ def _render_report(
     lines: list[str] = []
     lines.append(f"# Ollama digest model benchmark — {date.today().isoformat()}")
     lines.append("")
-    lines.append(f"Fixtures: 22 cells across 5 prompt shapes. Runs/cell: {args.runs}. "
-                 f"Judge: `{args.judge_model}` (rubric `{_RUBRIC_VERSION}`).")
+    lines.append(
+        f"Fixtures: 22 cells across 5 prompt shapes. Runs/cell: {args.runs}. "
+        f"Judge: `{args.judge_model}` (rubric `{_RUBRIC_VERSION}`)."
+    )
     lines.append("")
     lines.append("## Composite ranking")
     lines.append("")
-    lines.append("| Rank | Model | Composite | Quality | OK | p50 | p95 | Stability | Cap viol. |")
+    lines.append(
+        "| Rank | Model | Composite | Quality | OK | p50 | p95 | Stability | Cap viol. |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for rank, model in enumerate(ranked, start=1):
         s = per_model[model]
         p50 = f"{s['p50_latency']:.2f}s" if s["p50_latency"] is not None else "-"
         p95 = f"{s['p95_latency']:.2f}s" if s["p95_latency"] is not None else "-"
-        quality = f"{s['quality_normalised']:.2f}" if s["quality_normalised"] is not None else "-"
+        quality = (
+            f"{s['quality_normalised']:.2f}"
+            if s["quality_normalised"] is not None
+            else "-"
+        )
         lines.append(
             f"| {rank} | `{model}` | {composite[model]:.3f} | {quality} | "
             f"{s['ok_count']}/{s['ok_count'] + s['fail_count']} | "
@@ -629,28 +718,43 @@ def _render_report(
             lines.append(f"  - {flag}")
     lines.append("")
     recommended = next(
-        (m for m in ranked if per_model[m]["stability"] >= 1.0
-         and per_model[m]["fail_count"] == 0),
+        (
+            m
+            for m in ranked
+            if per_model[m]["stability"] >= 1.0 and per_model[m]["fail_count"] == 0
+        ),
         None,
     )
     lines.append("## Recommended default")
     lines.append("")
     if recommended:
-        lines.append(f"`{recommended}` — top-ranked composite with no stability or "
-                     "failure-rate disqualifiers. Updating the five `qwen2.5:7b` "
-                     "defaults to this is a follow-up task.")
+        lines.append(
+            f"`{recommended}` — top-ranked composite with no stability or "
+            "failure-rate disqualifiers. Updating the five `qwen2.5:7b` "
+            "defaults to this is a follow-up task."
+        )
     else:
-        lines.append("**No clean recommendation.** Every candidate has at least one "
-                     "disqualifying flag. Re-run with a wider candidate set or accept "
-                     "a flagged model after reviewing the per-model flags above.")
+        lines.append(
+            "**No clean recommendation.** Every candidate has at least one "
+            "disqualifying flag. Re-run with a wider candidate set or accept "
+            "a flagged model after reviewing the per-model flags above."
+        )
     lines.append("")
     lines.append("## Composite formula")
     lines.append("")
-    lines.append("`composite = 0.5 * quality + 0.3 * (1 - latency_norm) + 0.2 * stability`")
+    lines.append(
+        "`composite = 0.5 * quality + 0.3 * (1 - latency_norm) + 0.2 * stability`"
+    )
     lines.append("")
-    lines.append("- quality: judge rubric mean of (faithfulness + conciseness + risk_callout)/3, scaled 1..5 → 0..1")
-    lines.append("- latency_norm: p95 wall-clock latency, min-max normalised across this cohort")
-    lines.append("- stability: fraction of (model, fixture) pairs whose two runs were byte-identical at temp=0")
+    lines.append(
+        "- quality: judge rubric mean of (faithfulness + conciseness + risk_callout)/3, scaled 1..5 → 0..1"
+    )
+    lines.append(
+        "- latency_norm: p95 wall-clock latency, min-max normalised across this cohort"
+    )
+    lines.append(
+        "- stability: fraction of (model, fixture) pairs whose two runs were byte-identical at temp=0"
+    )
     lines.append("")
     lines.append("## Reproduce")
     lines.append("")
@@ -709,7 +813,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path.home() / ".claude" / "mcp-repo-tools" / "benchmarks" / date.today().isoformat(),
+        default=Path.home()
+        / ".claude"
+        / "mcp-repo-tools"
+        / "benchmarks"
+        / date.today().isoformat(),
         help="Where raw.json + report.md land.",
     )
     return parser.parse_args()
@@ -717,8 +825,12 @@ def _parse_args() -> argparse.Namespace:
 
 async def _async_main(args: argparse.Namespace) -> int:
     fixtures = _load_fixtures()
-    logger.info("BENCH: starting models={} fixtures={} runs={}",
-                args.models, len(fixtures), args.runs)
+    logger.info(
+        "BENCH: starting models={} fixtures={} runs={}",
+        args.models,
+        len(fixtures),
+        args.runs,
+    )
     local = _list_local_models()
     all_records: list[CellResult] = []
     for model in args.models:
@@ -735,7 +847,9 @@ async def _async_main(args: argparse.Namespace) -> int:
     judge_scores: dict[tuple[str, str, str], JudgeScore] = {}
     if os.environ.get("ANTHROPIC_API_KEY"):
         judge_scores = await _judge_first_runs(
-            all_records, fixture_lookup, args.judge_model,
+            all_records,
+            fixture_lookup,
+            args.judge_model,
             args.out_dir / "judge_cache.json",
         )
     else:
@@ -744,8 +858,11 @@ async def _async_main(args: argparse.Namespace) -> int:
     composite = _composite_score(per_model)
     _persist_raw(args.out_dir, all_records)
     _render_report(args.out_dir, per_model, composite, args)
-    logger.info("BENCH: done out_dir={} content_hash={}",
-                args.out_dir, _content_hash(all_records))
+    logger.info(
+        "BENCH: done out_dir={} content_hash={}",
+        args.out_dir,
+        _content_hash(all_records),
+    )
     return 0
 
 

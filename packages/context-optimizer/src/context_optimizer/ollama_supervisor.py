@@ -99,11 +99,15 @@ class OllamaSupervisor:
                 cls._mark_failed()
                 return False
             if not await cls._wait_for_health(api_root):
-                logger.warning("OLLAMA: daemon spawned but never became reachable url={}", api_root)
+                logger.warning(
+                    "OLLAMA: daemon spawned but never became reachable url={}", api_root
+                )
                 cls._mark_failed()
                 return False
 
-        if not await cls._warm_model(api_root, model, settings.context_compaction_keep_alive):
+        if not await cls._warm_model(
+            api_root, model, settings.context_compaction_keep_alive
+        ):
             cls._mark_failed()
             return False
 
@@ -117,12 +121,16 @@ class OllamaSupervisor:
     def _mark_failed(cls) -> None:
         cls._cooldown_until = time.monotonic() + cls._FAILURE_COOLDOWN_SECONDS
         cls._ready_until = 0.0
-        logger.warning("OLLAMA: failed cooldown_seconds={}", int(cls._FAILURE_COOLDOWN_SECONDS))
+        logger.warning(
+            "OLLAMA: failed cooldown_seconds={}", int(cls._FAILURE_COOLDOWN_SECONDS)
+        )
 
     @classmethod
     async def _health_check(cls, api_root: str) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=cls._HEALTH_CHECK_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(
+                timeout=cls._HEALTH_CHECK_TIMEOUT_SECONDS
+            ) as client:
                 resp = await client.get(f"{api_root}/api/tags")
                 return resp.status_code == 200
         except Exception:
@@ -146,7 +154,9 @@ class OllamaSupervisor:
             )
             return False
         except Exception as exc:
-            logger.error("OLLAMA: failed to spawn daemon {}: {}", type(exc).__name__, exc)
+            logger.error(
+                "OLLAMA: failed to spawn daemon {}: {}", type(exc).__name__, exc
+            )
             return False
 
     @classmethod
@@ -168,17 +178,28 @@ class OllamaSupervisor:
             async with httpx.AsyncClient(timeout=cls._WARMUP_TIMEOUT_SECONDS) as client:
                 resp = await client.post(
                     f"{api_root}/api/generate",
-                    json={"model": model, "prompt": "", "stream": False, "keep_alive": keep_alive},
+                    json={
+                        "model": model,
+                        "prompt": "",
+                        "stream": False,
+                        "keep_alive": keep_alive,
+                    },
                 )
         except Exception as exc:
-            logger.warning("OLLAMA: warm-up call failed {}: {}", type(exc).__name__, exc)
+            logger.warning(
+                "OLLAMA: warm-up call failed {}: {}", type(exc).__name__, exc
+            )
             return False
         if resp.status_code == 200:
             return True
         if resp.status_code == 404:
-            logger.error("OLLAMA: model {!r} not pulled. Run: ollama pull {}", model, model)
+            logger.error(
+                "OLLAMA: model {!r} not pulled. Run: ollama pull {}", model, model
+            )
             return False
-        logger.warning("OLLAMA: warm-up status={} body={!r}", resp.status_code, resp.text[:200])
+        logger.warning(
+            "OLLAMA: warm-up status={} body={!r}", resp.status_code, resp.text[:200]
+        )
         return False
 
     @classmethod

@@ -56,16 +56,10 @@ def python_repo(tmp_path: Path) -> Path:
     (repo / "pkg").mkdir()
     (repo / "pkg" / "__init__.py").write_text("")
     (repo / "pkg" / "main.py").write_text(
-        "from pkg.util import helper\n"
-        "\n"
-        "def process(x):\n"
-        "    return helper(x)\n"
+        "from pkg.util import helper\n\ndef process(x):\n    return helper(x)\n"
     )
     (repo / "pkg" / "util.py").write_text(
-        "from pkg.main import process\n"
-        "\n"
-        "def helper(x):\n"
-        "    return process(x)\n"
+        "from pkg.main import process\n\ndef helper(x):\n    return process(x)\n"
     )
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "init")
@@ -75,7 +69,9 @@ def python_repo(tmp_path: Path) -> Path:
 # ── definition_of ──────────────────────────────────────────────────────────
 
 
-def test_definition_of_returns_def_site_for_top_level_function(python_repo: Path) -> None:
+def test_definition_of_returns_def_site_for_top_level_function(
+    python_repo: Path,
+) -> None:
     defs = symbol_graph.definition_of(str(python_repo), "process")
     assert any(d.file == "pkg/main.py" and d.kind == "def" for d in defs)
 
@@ -118,6 +114,7 @@ def test_warm_cache_call_does_not_invoke_parse_repo(
     tree-sitter parser is already warm from earlier tests.
     """
     from context_optimizer.repo_index import tagger
+
     real_parse_repo = tagger.parse_repo
     counter = {"calls": 0}
 
@@ -154,8 +151,9 @@ def test_head_change_invalidates_and_rebuilds_graph(python_repo: Path) -> None:
     _git(python_repo, "commit", "-q", "-m", "add newly_added")
 
     after = symbol_graph.definition_of(str(python_repo), "newly_added")
-    assert any(d.file == "pkg/main.py" for d in after), \
+    assert any(d.file == "pkg/main.py" for d in after), (
         "post-commit graph should reflect the new definition"
+    )
 
 
 def test_build_for_repo_raises_when_not_a_git_repo(tmp_path: Path) -> None:

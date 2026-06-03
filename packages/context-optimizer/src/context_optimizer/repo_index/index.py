@@ -49,13 +49,13 @@ class LoadedIndex:
     # @stable — optimizer.py depends on query(), format_suffix(), and tree_hash.
     """
 
-    tree_hash: str          # f"{tree_sha}-{settings_suffix}" — the on-disk filename component;
-                            # tree_sha alone (HEAD^{tree}) is stable across --amend/rebase/reword,
-                            # the settings suffix invalidates on chunk/embedding/repomix-args change.
-                            # Also stored in IndexManifest.commit_hash and validated on load.
-    prefix_text: str        # frozen Repomix render — the stable system-prompt prefix
+    tree_hash: str  # f"{tree_sha}-{settings_suffix}" — the on-disk filename component;
+    # tree_sha alone (HEAD^{tree}) is stable across --amend/rebase/reword,
+    # the settings suffix invalidates on chunk/embedding/repomix-args change.
+    # Also stored in IndexManifest.commit_hash and validated on load.
+    prefix_text: str  # frozen Repomix render — the stable system-prompt prefix
     chunks: list[Chunk]
-    vectors: np.ndarray     # shape (N, embedding_dim), unit-normalised float32
+    vectors: np.ndarray  # shape (N, embedding_dim), unit-normalised float32
     manifest: IndexManifest
 
     def query(self, query_text: str, *, top_k: int = 10) -> list[tuple[Chunk, float]]:
@@ -67,7 +67,9 @@ class LoadedIndex:
         if not self.chunks:
             return []
         model = embedder._load_model(self.manifest.embedding_model)
-        vec = model.encode([query_text], normalize_embeddings=True, convert_to_numpy=True)
+        vec = model.encode(
+            [query_text], normalize_embeddings=True, convert_to_numpy=True
+        )
         query_vec = vec[0].astype(np.float32)
         hits = embedder.cosine_search(query_vec, self.vectors, top_k=top_k)
         return [(self.chunks[i], score) for i, score in hits]
@@ -109,7 +111,9 @@ class RepoIndex:
         try:
             cache_key = _cache_key(repo_root, settings)
             if cache_key is None:
-                logger.debug("REPO_INDEX: get_or_build no git repo at root={}", repo_root)
+                logger.debug(
+                    "REPO_INDEX: get_or_build no git repo at root={}", repo_root
+                )
                 return None
 
             # Fast path: in-memory hit doesn't need the lock.
@@ -135,7 +139,12 @@ class RepoIndex:
                 return built
 
         except Exception as exc:
-            logger.warning("REPO_INDEX: get_or_build failed root={} reason={}: {}", repo_root, type(exc).__name__, exc)
+            logger.warning(
+                "REPO_INDEX: get_or_build failed root={} reason={}: {}",
+                repo_root,
+                type(exc).__name__,
+                exc,
+            )
             return None
 
     @classmethod
@@ -157,8 +166,16 @@ class RepoIndex:
         if result is None:
             return None
         prefix_text, chunks, vectors, manifest = result
-        logger.info("REPO_INDEX: loaded from disk key={} chunks={}", cache_key[:16], len(chunks))
-        return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+        logger.info(
+            "REPO_INDEX: loaded from disk key={} chunks={}", cache_key[:16], len(chunks)
+        )
+        return LoadedIndex(
+            tree_hash=cache_key,
+            prefix_text=prefix_text,
+            chunks=chunks,
+            vectors=vectors,
+            manifest=manifest,
+        )
 
     @classmethod
     def build(
@@ -188,7 +205,13 @@ class RepoIndex:
             if existing is not None:
                 prefix_text, chunks, vectors, manifest = existing
                 logger.info("REPO_INDEX: build cache_hit key={}", cache_key[:16])
-                return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+                return LoadedIndex(
+                    tree_hash=cache_key,
+                    prefix_text=prefix_text,
+                    chunks=chunks,
+                    vectors=vectors,
+                    manifest=manifest,
+                )
 
         file_paths = _list_tracked_files(repo_root)
         if not file_paths:
@@ -199,8 +222,11 @@ class RepoIndex:
         effective_top_n = _compute_effective_top_n(settings, n_tracked)
         logger.info(
             "REPO_INDEX: build start key={} tracked={} mass_target={} top_n={} token_ceiling={}",
-            cache_key[:16], n_tracked, settings.repo_index_pagerank_mass_target,
-            effective_top_n, token_ceiling,
+            cache_key[:16],
+            n_tracked,
+            settings.repo_index_pagerank_mass_target,
+            effective_top_n,
+            token_ceiling,
         )
 
         tags_by_file = tagger.get_tags_for_repo(repo_root, file_paths)
@@ -221,7 +247,9 @@ class RepoIndex:
             chunk_size_tokens=settings.repo_index_chunk_size_tokens,
             overlap_tokens=settings.repo_index_chunk_overlap_tokens,
         )
-        vectors = embedder.embed_chunks(chunks, model_name=settings.repo_index_embedding_model)
+        vectors = embedder.embed_chunks(
+            chunks, model_name=settings.repo_index_embedding_model
+        )
 
         manifest = IndexManifest(
             commit_hash=cache_key,  # IndexManifest.commit_hash is a JSON key on disk — kept as-is
@@ -232,11 +260,24 @@ class RepoIndex:
             build_timestamp_utc=datetime.now(timezone.utc).isoformat(),
             embedding_model=settings.repo_index_embedding_model,
         )
-        embedder.save_index(prefix_text, chunks, vectors, manifest, context_dir, cache_key)
+        embedder.save_index(
+            prefix_text, chunks, vectors, manifest, context_dir, cache_key
+        )
         embedder.prune_old_indexes(context_dir, keep=3)
 
-        logger.info("REPO_INDEX: build done key={} files={} chunks={}", cache_key[:16], len(top_files), len(chunks))
-        return LoadedIndex(tree_hash=cache_key, prefix_text=prefix_text, chunks=chunks, vectors=vectors, manifest=manifest)
+        logger.info(
+            "REPO_INDEX: build done key={} files={} chunks={}",
+            cache_key[:16],
+            len(top_files),
+            len(chunks),
+        )
+        return LoadedIndex(
+            tree_hash=cache_key,
+            prefix_text=prefix_text,
+            chunks=chunks,
+            vectors=vectors,
+            manifest=manifest,
+        )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -292,7 +333,9 @@ def _list_tracked_files(repo_root: str) -> list[str]:
     return [os.path.join(repo_root, p) for p in rel_paths]
 
 
-def _render(repo_root: str, top_files: list[str], settings: ContextOptimizerSettings) -> str:
+def _render(
+    repo_root: str, top_files: list[str], settings: ContextOptimizerSettings
+) -> str:
     """Render top_files via Repomix, falling back to pure-Python renderer on failure."""
     try:
         return renderer.render_with_repomix(
@@ -306,7 +349,9 @@ def _render(repo_root: str, top_files: list[str], settings: ContextOptimizerSett
         return renderer.render_fallback(repo_root, top_files)
 
 
-def _compute_effective_top_n(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
+def _compute_effective_top_n(
+    settings: ContextOptimizerSettings, n_tracked_files: int
+) -> int:
     """Return the file-count ceiling for the mass selector.
 
     When repo_index_top_n == 0 (auto), scales linearly with repo size:
@@ -323,7 +368,9 @@ def _compute_effective_top_n(settings: ContextOptimizerSettings, n_tracked_files
     return min(20 + n_tracked_files // 10, 100)
 
 
-def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: int) -> int:
+def _compute_token_ceiling(
+    settings: ContextOptimizerSettings, n_tracked_files: int
+) -> int:
     """Return the maximum prefix token budget.
 
     When max_prefix_tokens == 0 (auto), scales with sqrt(n_tracked_files):
@@ -337,6 +384,7 @@ def _compute_token_ceiling(settings: ContextOptimizerSettings, n_tracked_files: 
     if settings.repo_index_max_prefix_tokens > 0:
         return settings.repo_index_max_prefix_tokens
     import math
+
     # math.isqrt over math.sqrt: integer-input deterministic floor sqrt — bit-identical
     # across platforms, so the auto-budget can't drift a token between macOS/Linux CI runs.
     return min(8_000 + math.isqrt(n_tracked_files) * 1_200, 56_000)
@@ -353,17 +401,24 @@ def _enforce_token_cap(
     """Reduce file count by 5 at a time until the rendered prefix fits within token_ceiling."""
     try:
         import tiktoken
+
         enc = tiktoken.get_encoding("cl100k_base")
+
         def count(s: str) -> int:
             return len(enc.encode(s))
     except Exception:
+
         def count(s: str) -> int:  # type: ignore[misc]
             return len(s) // 4
 
     while count(prefix_text) > token_ceiling and len(top_files) > 5:
         top_files = ranker.get_top_n_files(ranked, len(top_files) - 5)
         prefix_text = _render(repo_root, top_files, settings)
-        logger.info("REPO_INDEX: prefix_cap_reduce top_n={} tokens~={}", len(top_files), count(prefix_text))
+        logger.info(
+            "REPO_INDEX: prefix_cap_reduce top_n={} tokens~={}",
+            len(top_files),
+            count(prefix_text),
+        )
 
     # Coarse loop floors at 5 files. If those 5 still exceed the ceiling
     # (large monorepo files), shrink one at a time down to a single file.
@@ -374,14 +429,17 @@ def _enforce_token_cap(
         prefix_text = _render(repo_root, top_files, settings)
         logger.info(
             "REPO_INDEX: prefix_cap_fine_reduce top_n={} tokens~={}",
-            len(top_files), count(prefix_text),
+            len(top_files),
+            count(prefix_text),
         )
 
     if count(prefix_text) > token_ceiling:
         logger.warning(
             "REPO_INDEX: prefix_cap_overrun top_n={} tokens~={} ceiling={} — "
             "single hub file alone exceeds budget",
-            len(top_files), count(prefix_text), token_ceiling,
+            len(top_files),
+            count(prefix_text),
+            token_ceiling,
         )
 
     return prefix_text, top_files

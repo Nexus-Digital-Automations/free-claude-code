@@ -69,7 +69,9 @@ Current user message:
 """
 
 
-def build_seal_prompt(messages_tail: list[dict], target_tokens: int, preview_chars: int) -> str:
+def build_seal_prompt(
+    messages_tail: list[dict], target_tokens: int, preview_chars: int
+) -> str:
     """Render the sealing prompt for `messages_tail`.
 
     `preview_chars` caps the rendered length of each message so a runaway
@@ -80,7 +82,10 @@ def build_seal_prompt(messages_tail: list[dict], target_tokens: int, preview_cha
         role = msg.get("role", "?")
         text = render_content(msg.get("content", ""))
         if len(text) > preview_chars:
-            text = text[: preview_chars] + f"... [{len(text) - preview_chars} chars trimmed]"
+            text = (
+                text[:preview_chars]
+                + f"... [{len(text) - preview_chars} chars trimmed]"
+            )
         rendered_lines.append(f"[{i}] {role}: {text}")
     return _SEAL_TEMPLATE.format(
         target_tokens=target_tokens,
@@ -88,7 +93,9 @@ def build_seal_prompt(messages_tail: list[dict], target_tokens: int, preview_cha
     )
 
 
-def build_select_prompt(block_headers: list[tuple[int, str]], current_message: str) -> str:
+def build_select_prompt(
+    block_headers: list[tuple[int, str]], current_message: str
+) -> str:
     """Render the selection prompt from `(index, header)` pairs.
 
     The selector caller must guarantee non-empty `block_headers` — an

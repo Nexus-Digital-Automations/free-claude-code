@@ -71,7 +71,9 @@ def rank_files(
                 # math.isqrt over math.sqrt: deterministic integer floor sqrt avoids
                 # platform libm drift that can flip rank order on borderline ties.
                 # num_refs >= 1 (it comes from Counter), so isqrt is always >= 1.
-                G.add_edge(referencer, definer, weight=mul * math.isqrt(num_refs), ident=ident)
+                G.add_edge(
+                    referencer, definer, weight=mul * math.isqrt(num_refs), ident=ident
+                )
 
     if G.number_of_nodes() == 0:
         return []
@@ -97,7 +99,9 @@ def rank_files(
         try:
             ranked = nx.pagerank(G, weight="weight")
         except ZeroDivisionError:
-            logger.warning("REPO_INDEX: ranker pagerank_zero_division files={}", len(tags_by_file))
+            logger.warning(
+                "REPO_INDEX: ranker pagerank_zero_division files={}", len(tags_by_file)
+            )
             return []
 
     results = [

@@ -52,9 +52,7 @@ def python_repo(tmp_path: Path) -> Path:
     (repo / "pkg" / "sibling.py").write_text("X = 1\n")
     (repo / "pkg" / "sub" / "helper.py").write_text("Y = 2\n")
     (repo / "pkg" / "main.py").write_text(
-        "from pkg.sub import helper\n"
-        "from . import sibling\n"
-        "import os\n"
+        "from pkg.sub import helper\nfrom . import sibling\nimport os\n"
     )
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "init")
@@ -74,14 +72,18 @@ def _git(cwd: Path, *args: str) -> None:
 # ── imports_of ─────────────────────────────────────────────────────────────
 
 
-def test_imports_of_resolves_absolute_submodule_to_module_file(python_repo: Path) -> None:
+def test_imports_of_resolves_absolute_submodule_to_module_file(
+    python_repo: Path,
+) -> None:
     edges = dep_graph.imports_of(str(python_repo), "pkg/main.py")
     by_raw = {e.raw: e for e in edges}
     assert "pkg.sub.helper" in by_raw
     assert by_raw["pkg.sub.helper"].resolved == "pkg/sub/helper.py"
 
 
-def test_imports_of_resolves_relative_import_to_sibling_module(python_repo: Path) -> None:
+def test_imports_of_resolves_relative_import_to_sibling_module(
+    python_repo: Path,
+) -> None:
     edges = dep_graph.imports_of(str(python_repo), "pkg/main.py")
     by_raw = {e.raw: e for e in edges}
     assert ".sibling" in by_raw
@@ -147,6 +149,7 @@ def test_warm_cache_call_does_not_invoke_parse_repo(
     flake when the tree-sitter parser is already warm from a previous test.
     """
     from context_optimizer.repo_index import tagger
+
     real_parse_repo = tagger.parse_repo
     counter = {"calls": 0}
 
@@ -171,10 +174,7 @@ def test_head_change_invalidates_and_rebuilds_graph(python_repo: Path) -> None:
     assert "json" not in raws_before
 
     (python_repo / "pkg" / "main.py").write_text(
-        "from pkg.sub import helper\n"
-        "from . import sibling\n"
-        "import os\n"
-        "import json\n"
+        "from pkg.sub import helper\nfrom . import sibling\nimport os\nimport json\n"
     )
     _git(python_repo, "add", "pkg/main.py")
     _git(python_repo, "commit", "-q", "-m", "add json import")

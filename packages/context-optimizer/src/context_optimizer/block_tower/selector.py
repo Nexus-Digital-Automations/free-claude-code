@@ -85,7 +85,9 @@ async def select_blocks(
     skipped = [b.block_index for b in blocks if b.block_index not in selected_indices]
     logger.info(
         "BLOCK_TOWER: selected session={} include={} skip={}",
-        session_key[:7], selected_indices, skipped,
+        session_key[:7],
+        selected_indices,
+        skipped,
     )
     return [b for b in blocks if b.block_index in selected_indices]
 
@@ -121,7 +123,9 @@ async def _ask_ollama(
     except Exception as exc:
         logger.warning(
             "BLOCK_TOWER: select call failed reason={} {}: {}",
-            type(exc).__name__, type(exc).__name__, exc,
+            type(exc).__name__,
+            type(exc).__name__,
+            exc,
         )
         return None
 
@@ -129,7 +133,8 @@ async def _ask_ollama(
     parsed = parse_select_response(content, max_index)
     if parsed is None:
         logger.warning(
-            "BLOCK_TOWER: select parse failed first_200={!r}", content[:200],
+            "BLOCK_TOWER: select parse failed first_200={!r}",
+            content[:200],
         )
         return None
     return parsed

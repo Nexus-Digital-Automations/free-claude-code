@@ -24,7 +24,9 @@ def apply(messages: list[dict], keep_last_n: int) -> list[dict]:
     if keep_last_n < 0:
         return messages
 
-    assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    assistant_indices = [
+        i for i, m in enumerate(messages) if m.get("role") == "assistant"
+    ]
     if not assistant_indices:
         return messages
     if keep_last_n > 0 and len(assistant_indices) <= keep_last_n:

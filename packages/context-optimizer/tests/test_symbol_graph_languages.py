@@ -52,61 +52,87 @@ def _make_repo(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
 
 
 def test_python_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "py", {
-        "main.py": "def widget():\n    pass\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "py",
+        {
+            "main.py": "def widget():\n    pass\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.py" and d.kind == "def" for d in defs)
 
 
 def test_javascript_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "js", {
-        "main.js": "function widget() { return 1; }\nexport { widget };\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "js",
+        {
+            "main.js": "function widget() { return 1; }\nexport { widget };\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.js" and d.kind == "def" for d in defs)
 
 
 def test_typescript_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "ts", {
-        "main.ts": "export function widget(): number { return 1; }\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "ts",
+        {
+            "main.ts": "export function widget(): number { return 1; }\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.ts" and d.kind == "def" for d in defs)
 
 
 def test_go_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "go", {
-        "main.go": "package main\n\nfunc widget() int { return 1 }\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "go",
+        {
+            "main.go": "package main\n\nfunc widget() int { return 1 }\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.go" and d.kind == "def" for d in defs)
 
 
 def test_rust_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "rs", {
-        "main.rs": "fn widget() -> i32 { 1 }\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "rs",
+        {
+            "main.rs": "fn widget() -> i32 { 1 }\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.rs" and d.kind == "def" for d in defs)
 
 
 def test_ruby_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "rb", {
-        "main.rb": "def widget\n  1\nend\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "rb",
+        {
+            "main.rb": "def widget\n  1\nend\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.rb" and d.kind == "def" for d in defs)
 
 
 def test_java_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "java", {
-        "Widget.java": (
-            "public class Widget {\n"
-            "    public int widget() { return 1; }\n"
-            "}\n"
-        ),
-    })
+    repo = _make_repo(
+        tmp_path,
+        "java",
+        {
+            "Widget.java": (
+                "public class Widget {\n    public int widget() { return 1; }\n}\n"
+            ),
+        },
+    )
     # Java's tags.scm tags both class names and method names. We assert
     # the method is captured; the class also gets a separate def at line 1.
     defs = symbol_graph.definition_of(str(repo), "widget")
@@ -114,29 +140,39 @@ def test_java_definition_is_indexed(tmp_path: Path) -> None:
 
 
 def test_csharp_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "cs", {
-        "Widget.cs": (
-            "public class Widget {\n"
-            "    public int Compute() { return 1; }\n"
-            "}\n"
-        ),
-    })
+    repo = _make_repo(
+        tmp_path,
+        "cs",
+        {
+            "Widget.cs": (
+                "public class Widget {\n    public int Compute() { return 1; }\n}\n"
+            ),
+        },
+    )
     # Compute is the method def. Class def is also captured separately.
     defs = symbol_graph.definition_of(str(repo), "Compute")
     assert any(d.file == "Widget.cs" and d.kind == "def" for d in defs)
 
 
 def test_c_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "c", {
-        "main.c": "int widget(void) { return 1; }\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "c",
+        {
+            "main.c": "int widget(void) { return 1; }\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.c" and d.kind == "def" for d in defs)
 
 
 def test_cpp_definition_is_indexed(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path, "cpp", {
-        "main.cpp": "int widget() { return 1; }\n",
-    })
+    repo = _make_repo(
+        tmp_path,
+        "cpp",
+        {
+            "main.cpp": "int widget() { return 1; }\n",
+        },
+    )
     defs = symbol_graph.definition_of(str(repo), "widget")
     assert any(d.file == "main.cpp" and d.kind == "def" for d in defs)

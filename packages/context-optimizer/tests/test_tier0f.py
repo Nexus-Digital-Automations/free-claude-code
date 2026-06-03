@@ -44,6 +44,7 @@ def _settings(**overrides) -> ContextOptimizerSettings:
 
 # ---- gating ----
 
+
 def test_returns_input_identity_when_disabled():
     msgs = [_user_text("hello")]
     settings = _settings(tier0f_enabled=False)
@@ -66,6 +67,7 @@ def test_returns_input_identity_when_min_tokens_below_two():
 
 
 # ---- core dedup ----
+
 
 def test_drops_second_occurrence_of_repeated_span_above_threshold():
     repeat = _text_of_n_tokens(80)
@@ -108,6 +110,7 @@ def test_skips_repeats_below_threshold():
 
 # ---- definer protection ----
 
+
 def test_system_prompt_acts_as_definer_messages_get_dedup():
     repeat = _text_of_n_tokens(90)
     system = f"--- system instructions ---\n{repeat}\n--- end ---"
@@ -134,6 +137,7 @@ def test_last_user_message_protected_from_deletion():
 
 # ---- determinism / idempotence ----
 
+
 def test_idempotent_across_repeated_application():
     repeat = _text_of_n_tokens(100)
     msgs = [
@@ -159,6 +163,7 @@ def test_deterministic_byte_for_byte_across_runs():
 
 
 # ---- structural integrity ----
+
 
 def test_tool_use_input_id_name_untouched():
     repeat = _text_of_n_tokens(90)

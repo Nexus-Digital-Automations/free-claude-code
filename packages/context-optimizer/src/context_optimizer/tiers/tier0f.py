@@ -89,6 +89,7 @@ def apply(
 
 # ---- core ----
 
+
 def _dedupe(
     messages: list[dict],
     system: str | list | None,
@@ -125,7 +126,10 @@ def _dedupe(
 
 
 def _register(
-    tokens: list[int], sid: int, seen: dict[int, list[tuple[int, int]]], k: int,
+    tokens: list[int],
+    sid: int,
+    seen: dict[int, list[tuple[int, int]]],
+    k: int,
 ) -> None:
     for i, h in _rolling_hashes(tokens, k):
         seen.setdefault(h, []).append((sid, i))
@@ -168,10 +172,10 @@ def _longest_match_at(
     candidates = seen.get(hashes[i])
     if not candidates:
         return 0
-    window = tokens[i:i + k]
+    window = tokens[i : i + k]
     for sid, off in candidates:
         def_toks = span_tokens[sid]
-        if def_toks[off:off + k] != window:
+        if def_toks[off : off + k] != window:
             continue
         length = k
         while (
@@ -185,7 +189,8 @@ def _longest_match_at(
 
 
 def _apply_deletions(
-    tokens: list[int], deletions: list[tuple[int, int]],
+    tokens: list[int],
+    deletions: list[tuple[int, int]],
 ) -> list[int]:
     kept: list[int] = []
     cursor = 0
@@ -214,8 +219,10 @@ def _rolling_hashes(tokens: list[int], k: int) -> Iterator[tuple[int, int]]:
 
 # ---- span collection ----
 
+
 def _collect_deletable_spans(
-    messages: list[dict], settings: ContextOptimizerSettings,
+    messages: list[dict],
+    settings: ContextOptimizerSettings,
 ) -> Iterator[tuple[_Ref, str]]:
     """Yield (ref, text) for every text-bearing span eligible for deletion."""
     last_user_idx = (
@@ -256,7 +263,8 @@ def _system_spans(system: str | list) -> Iterator[tuple[_Ref, str]]:
 
 
 def _spans_in_message(
-    msg: dict, msg_idx: int,
+    msg: dict,
+    msg_idx: int,
 ) -> Iterator[tuple[_Ref, str]]:
     content = msg.get("content")
     if isinstance(content, str):
@@ -288,12 +296,15 @@ def _last_user_message_index(messages: list[dict]) -> int:
 
 # ---- splicing ----
 
+
 def _splice(messages: list[dict], rewrites: dict[_Ref, str]) -> list[dict]:
     return [_rewrite_message(msg, idx, rewrites) for idx, msg in enumerate(messages)]
 
 
 def _rewrite_message(
-    msg: dict, msg_idx: int, rewrites: dict[_Ref, str],
+    msg: dict,
+    msg_idx: int,
+    rewrites: dict[_Ref, str],
 ) -> dict:
     content = msg.get("content")
     if isinstance(content, str):
@@ -312,7 +323,10 @@ def _rewrite_message(
 
 
 def _rewrite_block(
-    block: Any, msg_idx: int, block_idx: int, rewrites: dict[_Ref, str],
+    block: Any,
+    msg_idx: int,
+    block_idx: int,
+    rewrites: dict[_Ref, str],
 ) -> Any:
     if not isinstance(block, dict):
         return block

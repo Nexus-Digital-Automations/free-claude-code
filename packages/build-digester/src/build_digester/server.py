@@ -57,7 +57,9 @@ async def run(
     ] = None,
     framework: Annotated[
         str | None,
-        Field(description=f"Override framework auto-detection. One of: {SUPPORTED_FRAMEWORKS}."),
+        Field(
+            description=f"Override framework auto-detection. One of: {SUPPORTED_FRAMEWORKS}."
+        ),
     ] = None,
     verbose: Annotated[
         bool,
@@ -96,13 +98,17 @@ async def run(
     duration_ms = int((asyncio.get_event_loop().time() - started) * 1000)
     logger.info(
         "build_digester method=run framework=%s status=%s duration_ms=%d errors=%d",
-        chosen, response["status"], duration_ms, len(response.get("errors", [])),
+        chosen,
+        response["status"],
+        duration_ms,
+        len(response.get("errors", [])),
     )
     return response
 
 
 async def _shape_response(
-    result: RunResult, verbose: bool,
+    result: RunResult,
+    verbose: bool,
 ) -> dict[str, Any]:
     """Map RunResult -> response, digesting error bodies in parallel."""
     if result.exit_code is None:
@@ -136,7 +142,8 @@ async def _digest_each_error(
 
 
 async def _digest_one_error(
-    error: ErrorRecord, config: BuildDigestConfig,
+    error: ErrorRecord,
+    config: BuildDigestConfig,
 ) -> dict[str, Any]:
     """Digest body when above threshold; otherwise keep verbatim."""
     if len(error.body.encode("utf-8", errors="ignore")) < _BODY_DIGEST_THRESHOLD_BYTES:

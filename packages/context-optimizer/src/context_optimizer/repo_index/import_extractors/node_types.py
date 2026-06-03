@@ -34,6 +34,7 @@ class ImportNodeShape:
     `extract_module` runs on each matched node and returns one RawImport
     or None when the node lacks a string child (parse-recovery cases).
     """
+
     statement_types: frozenset[str]
     extract_module: _ExtractorFn
 
@@ -53,7 +54,9 @@ def _extract_js_import(node: object, source: bytes) -> RawImport | None:
     raw = _string_text(string_node, source)
     if raw is None:
         return None
-    return RawImport(raw=raw, line=node.start_point[0] + 1, is_relative=raw.startswith("."))
+    return RawImport(
+        raw=raw, line=node.start_point[0] + 1, is_relative=raw.startswith(".")
+    )
 
 
 # ── Go ─────────────────────────────────────────────────────────────────────
@@ -80,7 +83,9 @@ def _extract_go_import(node: object, source: bytes) -> RawImport | None:
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
-def _first_child_of_type(node: object, types: frozenset[str] | set[str]) -> object | None:
+def _first_child_of_type(
+    node: object, types: frozenset[str] | set[str]
+) -> object | None:
     """Return the first direct child whose `type` is in `types`, or None."""
     for child in getattr(node, "children", []):
         if child.type in types:
@@ -96,7 +101,7 @@ def _string_text(string_node: object, source: bytes) -> str | None:
     a string literal, but we guard rather than raise).
     """
     try:
-        text = source[string_node.start_byte:string_node.end_byte].decode("utf-8")
+        text = source[string_node.start_byte : string_node.end_byte].decode("utf-8")
     except UnicodeDecodeError:
         return None
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'", "`"}:

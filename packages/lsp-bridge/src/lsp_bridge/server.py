@@ -49,7 +49,10 @@ async def hover(
     status = "ok" if result.symbol else "empty"
     logger.info(
         "lsp_bridge method=hover file=%s line=%d status=%s duration_ms=%d",
-        os.path.basename(file), line, status, duration_ms,
+        os.path.basename(file),
+        line,
+        status,
+        duration_ms,
     )
     return asdict(result)
 
@@ -73,7 +76,9 @@ async def definition(
     duration_ms = int((asyncio.get_event_loop().time() - started) * 1000)
     logger.info(
         "lsp_bridge method=definition symbol=%s hits=%d duration_ms=%d",
-        symbol, len(locations), duration_ms,
+        symbol,
+        len(locations),
+        duration_ms,
     )
     return {
         "symbol": symbol,

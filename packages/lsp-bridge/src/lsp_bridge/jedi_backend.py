@@ -62,7 +62,9 @@ def hover_at(file: str, line: int, column: int) -> HoverResult:
     except Exception as exc:
         logger.warning(
             "lsp_bridge hover script_init_failed file={} type={} msg={}",
-            file, type(exc).__name__, str(exc)[:120],
+            file,
+            type(exc).__name__,
+            str(exc)[:120],
         )
         return HoverResult(None, None, None, None)
 
@@ -92,7 +94,9 @@ def find_definitions(symbol: str, project_root: str) -> list[DefinitionLocation]
     except Exception as exc:
         logger.warning(
             "lsp_bridge definition project_init_failed root={} type={} msg={}",
-            project_root, type(exc).__name__, str(exc)[:120],
+            project_root,
+            type(exc).__name__,
+            str(exc)[:120],
         )
         return []
 
@@ -114,7 +118,9 @@ def _safe_call(method: Any, *args: Any, label: str) -> list[Any]:
     except Exception as exc:
         logger.warning(
             "lsp_bridge jedi_call_failed op={} type={} msg={}",
-            label, type(exc).__name__, str(exc)[:120],
+            label,
+            type(exc).__name__,
+            str(exc)[:120],
         )
         return []
     return list(result) if result else []

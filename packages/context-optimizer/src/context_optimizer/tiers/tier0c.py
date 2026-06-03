@@ -64,7 +64,8 @@ def reset_for_test() -> None:
 
 
 async def apply(
-    messages: list[dict], settings: ContextOptimizerSettings,
+    messages: list[dict],
+    settings: ContextOptimizerSettings,
 ) -> list[dict]:
     """Replace eligible tool_use inputs with Ollama-generated summaries.
 
@@ -100,7 +101,9 @@ async def apply(
 
 
 def _find_candidates(
-    messages: list[dict], min_bytes: int, keep_recent: int,
+    messages: list[dict],
+    min_bytes: int,
+    keep_recent: int,
 ) -> list[tuple[int, int, str, str]]:
     """Return [(msg_idx, block_idx, tool_name, serialized_input), ...].
 
@@ -175,7 +178,8 @@ async def _digest_misses(
     except asyncio.TimeoutError:
         logger.warning(
             "CONTEXT_OPT: tier0c batch_timeout misses={} timeout_s={}",
-            len(miss_indices), settings.tier0c_digest_timeout_seconds,
+            len(miss_indices),
+            settings.tier0c_digest_timeout_seconds,
         )
         return {}
 
@@ -197,7 +201,10 @@ async def _digest_misses(
         logger.info(
             "CONTEXT_OPT: tier0c digesting bytes_before={} bytes_after={} "
             "count={} latency_ms={}",
-            bytes_before, bytes_after, len(out), elapsed_ms,
+            bytes_before,
+            bytes_after,
+            len(out),
+            elapsed_ms,
         )
     return out
 
@@ -224,14 +231,16 @@ async def _digest_one(
     except Exception as exc:
         logger.warning(
             "CONTEXT_OPT: tier0c digest_failed {}: {}",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
         return None
 
     digest = parse_digest_response(content)
     if digest is None:
         logger.warning(
-            "CONTEXT_OPT: tier0c parse_error first_200={!r}", content[:200],
+            "CONTEXT_OPT: tier0c parse_error first_200={!r}",
+            content[:200],
         )
         return None
     return digest
@@ -264,7 +273,9 @@ def _apply_digests(
         replacements = by_msg[mi]
         for bi, block in enumerate(msg.get("content", [])):
             if bi in replacements:
-                new_blocks.append({**block, "input": {"_compacted_summary": replacements[bi]}})
+                new_blocks.append(
+                    {**block, "input": {"_compacted_summary": replacements[bi]}}
+                )
             else:
                 new_blocks.append(block)
         result.append({**msg, "content": new_blocks})

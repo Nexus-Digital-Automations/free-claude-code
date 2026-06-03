@@ -85,7 +85,9 @@ async def run_pytest(
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except asyncio.TimeoutError:
-        return RunResult(None, None, None, None, [], f"pytest_timeout after {timeout_s}s")
+        return RunResult(
+            None, None, None, None, [], f"pytest_timeout after {timeout_s}s"
+        )
     except FileNotFoundError:
         return RunResult(None, None, None, None, [], "pytest binary not found on PATH")
 
@@ -136,7 +138,8 @@ def _parse_failure_blocks(text: str) -> list[FailureRecord]:
 
 
 def _chunk_failures(
-    section: str, summary_lookup: dict[str, str],
+    section: str,
+    summary_lookup: dict[str, str],
 ) -> list[FailureRecord]:
     """# @internal — split the FAILURES section into per-test records."""
     lines = section.splitlines()
@@ -161,13 +164,15 @@ def _chunk_failures(
     for name, body_lines in blocks:
         body = "\n".join(body_lines).strip()
         loc = _LOCATION.search(body)
-        records.append(FailureRecord(
-            test_id=name,
-            file=loc.group("file") if loc else None,
-            line=int(loc.group("line")) if loc else None,
-            summary=summary_lookup.get(name, body.splitlines()[-1] if body else ""),
-            body=body,
-        ))
+        records.append(
+            FailureRecord(
+                test_id=name,
+                file=loc.group("file") if loc else None,
+                line=int(loc.group("line")) if loc else None,
+                summary=summary_lookup.get(name, body.splitlines()[-1] if body else ""),
+                body=body,
+            )
+        )
     return records
 
 

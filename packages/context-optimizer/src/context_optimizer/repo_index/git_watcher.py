@@ -35,7 +35,11 @@ def get_head_tree_sha(repo_root: str) -> str | None:
         except (InvalidGitRepositoryError, NoSuchPathError, ValueError):
             pass
         except Exception as exc:
-            logger.debug("REPO_INDEX: gitpython tree_sha failed root={} reason={}", repo_root, exc)
+            logger.debug(
+                "REPO_INDEX: gitpython tree_sha failed root={} reason={}",
+                repo_root,
+                exc,
+            )
     except ImportError:
         pass
 
@@ -50,7 +54,9 @@ def get_head_tree_sha(repo_root: str) -> str | None:
             sha = result.stdout.strip()
             return sha or None
     except Exception as exc:
-        logger.debug("REPO_INDEX: subprocess tree_sha failed root={} reason={}", repo_root, exc)
+        logger.debug(
+            "REPO_INDEX: subprocess tree_sha failed root={} reason={}", repo_root, exc
+        )
 
     return None
 

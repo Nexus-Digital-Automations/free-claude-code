@@ -26,6 +26,7 @@ class RawImport:
     the resolver uses it to decide whether to start from the importing
     file's directory or the repo root.
     """
+
     raw: str
     line: int
     is_relative: bool

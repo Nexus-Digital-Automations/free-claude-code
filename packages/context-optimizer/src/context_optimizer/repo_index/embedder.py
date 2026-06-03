@@ -56,7 +56,11 @@ def chunk_text(
 
     chunks: list[Chunk] = []
     for source_file, content in sections:
-        chunks.extend(_chunk_section(source_file, content, chunk_size_tokens, overlap_tokens, counter))
+        chunks.extend(
+            _chunk_section(
+                source_file, content, chunk_size_tokens, overlap_tokens, counter
+            )
+        )
     return chunks
 
 
@@ -78,6 +82,7 @@ def _split_sections(text: str) -> list[tuple[str, str]]:
 def _make_token_counter(tokenizer_name: str) -> Callable[[str], int]:
     try:
         import tiktoken
+
         enc = tiktoken.get_encoding(tokenizer_name)
         return lambda s: len(enc.encode(s))
     except Exception:
@@ -108,7 +113,14 @@ def _chunk_section(
             return
         text = "".join(chunk_lines).strip()
         if text:
-            chunks.append(Chunk(source_file=source_file, chunk_index=chunk_index, text=text, token_count=chunk_tokens))
+            chunks.append(
+                Chunk(
+                    source_file=source_file,
+                    chunk_index=chunk_index,
+                    text=text,
+                    token_count=chunk_tokens,
+                )
+            )
         # Build overlap buffer from tail of flushed chunk
         overlap_lines = []
         overlap_tokens = 0
@@ -150,7 +162,9 @@ def embed_chunks(
         return np.zeros((0, 384), dtype=np.float32)
 
     model = _load_model(model_name)
-    logger.info("REPO_INDEX: embedder encoding chunks={} model={}", len(chunks), model_name)
+    logger.info(
+        "REPO_INDEX: embedder encoding chunks={} model={}", len(chunks), model_name
+    )
     vectors = model.encode(
         [c.text for c in chunks],
         batch_size=batch_size,
@@ -165,8 +179,12 @@ def _load_model(model_name: str):
     global _model, _model_name
     if _model is not None and _model_name == model_name:
         return _model
-    logger.info("REPO_INDEX: embedder loading model={} (first use may download ~80MB)", model_name)
+    logger.info(
+        "REPO_INDEX: embedder loading model={} (first use may download ~80MB)",
+        model_name,
+    )
     from sentence_transformers import SentenceTransformer
+
     _model = SentenceTransformer(model_name)
     _model_name = model_name
     return _model
@@ -215,10 +233,14 @@ def save_index(
     _atomic_write_text(f"{base}.txt", prefix_text)
     _atomic_write_npy(f"{base}.npy", vectors)
     _atomic_write_json(f"{base}.json", _manifest_to_dict(manifest, chunks))
-    logger.info("REPO_INDEX: embedder saved hash={} chunks={}", commit_hash[:7], len(chunks))
+    logger.info(
+        "REPO_INDEX: embedder saved hash={} chunks={}", commit_hash[:7], len(chunks)
+    )
 
 
-def load_index(output_dir: str, commit_hash: str) -> tuple[str, list[Chunk], np.ndarray, IndexManifest] | None:
+def load_index(
+    output_dir: str, commit_hash: str
+) -> tuple[str, list[Chunk], np.ndarray, IndexManifest] | None:
     """Load all three index files for commit_hash.
 
     Returns (prefix_text, chunks, vectors, manifest) or None if any file is missing,
@@ -233,12 +255,17 @@ def load_index(output_dir: str, commit_hash: str) -> tuple[str, list[Chunk], np.
         vectors = np.load(f"{base}.npy").astype(np.float32)
         raw = json.loads(Path(f"{base}.json").read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning("REPO_INDEX: embedder load_error hash={} reason={}", commit_hash[:7], exc)
+        logger.warning(
+            "REPO_INDEX: embedder load_error hash={} reason={}", commit_hash[:7], exc
+        )
         return None
 
     if raw.get("commit_hash") != commit_hash:
-        logger.warning("REPO_INDEX: embedder manifest_hash_mismatch expected={} got={}",
-                       commit_hash[:7], str(raw.get("commit_hash", ""))[:7])
+        logger.warning(
+            "REPO_INDEX: embedder manifest_hash_mismatch expected={} got={}",
+            commit_hash[:7],
+            str(raw.get("commit_hash", ""))[:7],
+        )
         return None
 
     chunks = [Chunk(**c) for c in raw["chunks"]]
@@ -250,7 +277,9 @@ def load_index(output_dir: str, commit_hash: str) -> tuple[str, list[Chunk], np.
     if vectors.shape[0] != len(chunks):
         logger.warning(
             "REPO_INDEX: embedder shape_mismatch hash={} vectors={} chunks={} — rebuilding",
-            commit_hash[:7], vectors.shape[0], len(chunks),
+            commit_hash[:7],
+            vectors.shape[0],
+            len(chunks),
         )
         return None
 
@@ -284,7 +313,9 @@ def prune_old_indexes(output_dir: str, keep: int = 3) -> None:
             try:
                 target.unlink(missing_ok=True)
             except OSError as exc:
-                logger.debug("REPO_INDEX: embedder prune_error file={} reason={}", target, exc)
+                logger.debug(
+                    "REPO_INDEX: embedder prune_error file={} reason={}", target, exc
+                )
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -325,8 +356,15 @@ def _manifest_to_dict(manifest: IndexManifest, chunks: list[Chunk]) -> dict:
         "repo_root": manifest.repo_root,
         "top_n": manifest.top_n,
         "ranked_files": manifest.ranked_files,
-        "chunks": [{"source_file": c.source_file, "chunk_index": c.chunk_index,
-                    "text": c.text, "token_count": c.token_count} for c in chunks],
+        "chunks": [
+            {
+                "source_file": c.source_file,
+                "chunk_index": c.chunk_index,
+                "text": c.text,
+                "token_count": c.token_count,
+            }
+            for c in chunks
+        ],
         "build_timestamp_utc": manifest.build_timestamp_utc,
         "embedding_model": manifest.embedding_model,
     }

@@ -69,7 +69,9 @@ def detect_framework(cwd: Path) -> str | None:
 
 
 async def run_build(
-    cwd: Path, framework: str, timeout_s: float,
+    cwd: Path,
+    framework: str,
+    timeout_s: float,
 ) -> RunResult:
     """Spawn the framework's command in cwd via execFile-equivalent.
 
@@ -77,8 +79,9 @@ async def run_build(
     to a RunResult with None counts and raw_tail explaining what happened.
     """
     if framework not in _FRAMEWORKS:
-        return RunResult(framework, [], None, None, None,
-                         f"unsupported_framework: {framework}")
+        return RunResult(
+            framework, [], None, None, None, f"unsupported_framework: {framework}"
+        )
     spec = _FRAMEWORKS[framework]
     started = time.monotonic()
     try:
@@ -91,12 +94,18 @@ async def run_build(
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
         exit_code = proc.returncode
     except asyncio.TimeoutError:
-        return RunResult(framework, [], None, None, None,
-                         f"{framework}_timeout after {timeout_s}s")
+        return RunResult(
+            framework, [], None, None, None, f"{framework}_timeout after {timeout_s}s"
+        )
     except FileNotFoundError:
-        return RunResult(framework, [], None, None, None,
-                         f"{framework} binary not found on PATH "
-                         f"(needed: {spec['argv'][0]})")
+        return RunResult(
+            framework,
+            [],
+            None,
+            None,
+            None,
+            f"{framework} binary not found on PATH (needed: {spec['argv'][0]})",
+        )
 
     elapsed = time.monotonic() - started
     text = stdout.decode("utf-8", errors="replace")
@@ -126,14 +135,16 @@ def _parse_tsc(text: str) -> list[ErrorRecord]:
     """
     out: list[ErrorRecord] = []
     for match in _TSC_LINE.finditer(text):
-        out.append(ErrorRecord(
-            framework="tsc",
-            file=match.group("file"),
-            line=int(match.group("line")),
-            code=match.group("code"),
-            summary=match.group("msg").strip(),
-            body=match.group(0),
-        ))
+        out.append(
+            ErrorRecord(
+                framework="tsc",
+                file=match.group("file"),
+                line=int(match.group("line")),
+                code=match.group("code"),
+                summary=match.group("msg").strip(),
+                body=match.group(0),
+            )
+        )
     return out
 
 
@@ -155,14 +166,16 @@ def _parse_mypy(text: str) -> list[ErrorRecord]:
     for match in _MYPY_LINE.finditer(text):
         if match.group("level") != "error":
             continue
-        out.append(ErrorRecord(
-            framework="mypy",
-            file=match.group("file"),
-            line=int(match.group("line")),
-            code=match.group("code"),
-            summary=match.group("msg").strip(),
-            body=match.group(0),
-        ))
+        out.append(
+            ErrorRecord(
+                framework="mypy",
+                file=match.group("file"),
+                line=int(match.group("line")),
+                code=match.group("code"),
+                summary=match.group("msg").strip(),
+                body=match.group(0),
+            )
+        )
     return out
 
 
@@ -188,14 +201,16 @@ def _parse_cargo(text: str) -> list[ErrorRecord]:
             continue
         spans = msg.get("spans") or []
         primary = next((s for s in spans if s.get("is_primary")), None)
-        out.append(ErrorRecord(
-            framework="cargo",
-            file=primary.get("file_name") if primary else None,
-            line=int(primary["line_start"]) if primary else None,
-            code=(msg.get("code") or {}).get("code"),
-            summary=str(msg.get("message", "")).strip(),
-            body=msg.get("rendered") or json.dumps(msg, indent=2),
-        ))
+        out.append(
+            ErrorRecord(
+                framework="cargo",
+                file=primary.get("file_name") if primary else None,
+                line=int(primary["line_start"]) if primary else None,
+                code=(msg.get("code") or {}).get("code"),
+                summary=str(msg.get("message", "")).strip(),
+                body=msg.get("rendered") or json.dumps(msg, indent=2),
+            )
+        )
     return out
 
 

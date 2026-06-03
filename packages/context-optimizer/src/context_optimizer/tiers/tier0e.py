@@ -30,11 +30,13 @@ from ..settings import ContextOptimizerSettings
 # routinely appear inside legitimate file contents — applying the keyword
 # scan to those tools would produce false-positive "errored" classifications
 # and defeat the filter on every codebase exploration turn.
-_KEYWORD_SCAN_TOOLS: frozenset[str] = frozenset({
-    "Bash",
-    "WebFetch",
-    "WebSearch",
-})
+_KEYWORD_SCAN_TOOLS: frozenset[str] = frozenset(
+    {
+        "Bash",
+        "WebFetch",
+        "WebSearch",
+    }
+)
 
 # Lowercase substrings; matched case-insensitively against tool_result text.
 _ERROR_KEYWORDS: tuple[str, ...] = (
@@ -58,7 +60,8 @@ _BASH_FAILURE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 
 def apply(
-    messages: list[dict], settings: ContextOptimizerSettings,
+    messages: list[dict],
+    settings: ContextOptimizerSettings,
 ) -> list[dict]:
     """Stub successful tool_use inputs; pass errored pairs through.
 
@@ -187,7 +190,8 @@ def _looks_like_bash_failure(text: str) -> bool:
 
 
 def _stub_successful_tool_uses(
-    messages: list[dict], errored_ids: set[str],
+    messages: list[dict],
+    errored_ids: set[str],
 ) -> list[dict]:
     """Return a copy of messages with successful tool_use inputs replaced by {}.
 

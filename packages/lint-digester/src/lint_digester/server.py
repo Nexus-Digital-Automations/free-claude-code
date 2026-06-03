@@ -60,7 +60,9 @@ async def run(
     ] = None,
     paths: Annotated[
         list[str] | None,
-        Field(description="Specific paths to lint (relative to cwd). Defaults per-linter."),
+        Field(
+            description="Specific paths to lint (relative to cwd). Defaults per-linter."
+        ),
     ] = None,
     timeout_s: Annotated[
         float,
@@ -93,10 +95,12 @@ async def run(
 
     duration_ms = int((asyncio.get_event_loop().time() - started) * 1000)
     logger.info(
-        "lint_digester method=run linter=%s status=%s duration_ms=%d "
-        "total=%d rules=%d",
-        chosen, response["status"], duration_ms,
-        response.get("total", 0), len(response.get("by_rule", [])),
+        "lint_digester method=run linter=%s status=%s duration_ms=%d total=%d rules=%d",
+        chosen,
+        response["status"],
+        duration_ms,
+        response.get("total", 0),
+        len(response.get("by_rule", [])),
     )
     return response
 
@@ -114,10 +118,12 @@ async def _shape_response(result: RunResult) -> dict[str, Any]:
 
     grouped = _group_by_rule(result.findings)
     config = LintDigestConfig()
-    by_rule = await asyncio.gather(*(
-        _digest_rule_entry(rule_id, items, config)
-        for rule_id, items in grouped.items()
-    ))
+    by_rule = await asyncio.gather(
+        *(
+            _digest_rule_entry(rule_id, items, config)
+            for rule_id, items in grouped.items()
+        )
+    )
     by_rule_sorted = sorted(by_rule, key=lambda entry: -entry["count"])
 
     return {
@@ -139,15 +145,15 @@ def _group_by_rule(findings: list[Finding]) -> dict[str, list[Finding]]:
 
 
 async def _digest_rule_entry(
-    rule_id: str, items: list[Finding], config: LintDigestConfig,
+    rule_id: str,
+    items: list[Finding],
+    config: LintDigestConfig,
 ) -> dict[str, Any]:
     """Build one rule entry: count, distinct files, an example, its digest."""
     example = items[0]
     distinct_files = sorted({finding.file for finding in items})
     payload = (
-        f"rule={rule_id}\n"
-        f"message={example.message}\n"
-        f"file={example.file}:{example.line}"
+        f"rule={rule_id}\nmessage={example.message}\nfile={example.file}:{example.line}"
     )
     digest_text = await digest_rule(payload, config)
     return {

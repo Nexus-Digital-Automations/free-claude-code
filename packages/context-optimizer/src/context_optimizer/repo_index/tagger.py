@@ -118,7 +118,11 @@ def parse_repo(
             try:
                 result = future.result()
             except Exception as exc:
-                logger.warning("REPO_INDEX: tagger parse_error path={} reason={}", futures[future], exc)
+                logger.warning(
+                    "REPO_INDEX: tagger parse_error path={} reason={}",
+                    futures[future],
+                    exc,
+                )
                 continue
             if result is not None:
                 parsed[result.rel_path] = result
@@ -135,9 +139,15 @@ def _parse_one(repo_root: str, abs_path: str) -> ParsedFile | None:
         return None
     try:
         from tree_sitter_language_pack import get_parser
+
         parser = get_parser(lang)
     except Exception as exc:
-        logger.debug("REPO_INDEX: tagger lang_load_error file={} lang={} reason={}", rel, lang, exc)
+        logger.debug(
+            "REPO_INDEX: tagger lang_load_error file={} lang={} reason={}",
+            rel,
+            lang,
+            exc,
+        )
         return None
     try:
         source = Path(abs_path).read_bytes()
@@ -149,7 +159,9 @@ def _parse_one(repo_root: str, abs_path: str) -> ParsedFile | None:
     except Exception as exc:
         logger.debug("REPO_INDEX: tagger parse_error file={} reason={}", rel, exc)
         return None
-    return ParsedFile(rel_path=rel, abs_path=abs_path, language=lang, source=source, tree=tree)
+    return ParsedFile(
+        rel_path=rel, abs_path=abs_path, language=lang, source=source, tree=tree
+    )
 
 
 # ── tag extraction ─────────────────────────────────────────────────────────
@@ -177,7 +189,9 @@ def extract_tags_from_parsed(parsed: dict[str, ParsedFile]) -> dict[str, list[Ta
             query = Query(language, scm.read_text(encoding="utf-8"))
             captures = _run_captures(query, parsed_file.tree.root_node)
         except Exception as exc:
-            logger.debug("REPO_INDEX: tagger query_error file={} reason={}", rel_path, exc)
+            logger.debug(
+                "REPO_INDEX: tagger query_error file={} reason={}", rel_path, exc
+            )
             tags_by_file[rel_path] = []
             continue
         tags_by_file[rel_path] = list(_extract_tags(captures, rel_path))

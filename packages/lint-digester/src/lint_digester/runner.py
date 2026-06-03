@@ -60,7 +60,10 @@ def detect_linter(cwd: Path) -> str | None:
 
 
 async def run_linter(
-    cwd: Path, linter: str, paths: list[str] | None, timeout_s: float,
+    cwd: Path,
+    linter: str,
+    paths: list[str] | None,
+    timeout_s: float,
 ) -> RunResult:
     """Spawn the linter in cwd via execFile-equivalent.
 
@@ -81,14 +84,20 @@ async def run_linter(
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_s,
+            proc.communicate(),
+            timeout=timeout_s,
         )
         exit_code = proc.returncode
     except asyncio.TimeoutError:
         return RunResult(linter, [], None, None, f"{linter}_timeout after {timeout_s}s")
     except FileNotFoundError:
-        return RunResult(linter, [], None, None,
-                         f"{linter} binary not found on PATH (needed: {argv[0]})")
+        return RunResult(
+            linter,
+            [],
+            None,
+            None,
+            f"{linter} binary not found on PATH (needed: {argv[0]})",
+        )
 
     elapsed = time.monotonic() - started
     text = stdout.decode("utf-8", errors="replace")
@@ -114,14 +123,20 @@ def _parse_ruff(text: str) -> list[Finding]:
     out: list[Finding] = []
     for item in payload:
         location = item.get("location") or {}
-        out.append(Finding(
-            linter="ruff",
-            rule_id=str(item.get("code") or ""),
-            file=str(item.get("filename", "")),
-            line=int(location.get("row")) if location.get("row") is not None else None,
-            column=int(location.get("column")) if location.get("column") is not None else None,
-            message=str(item.get("message", "")),
-        ))
+        out.append(
+            Finding(
+                linter="ruff",
+                rule_id=str(item.get("code") or ""),
+                file=str(item.get("filename", "")),
+                line=int(location.get("row"))
+                if location.get("row") is not None
+                else None,
+                column=int(location.get("column"))
+                if location.get("column") is not None
+                else None,
+                message=str(item.get("message", "")),
+            )
+        )
     return out
 
 
@@ -137,14 +152,18 @@ def _parse_eslint(text: str) -> list[Finding]:
     for file_result in payload:
         path = str(file_result.get("filePath", ""))
         for msg in file_result.get("messages", []):
-            out.append(Finding(
-                linter="eslint",
-                rule_id=str(msg.get("ruleId") or "unknown"),
-                file=path,
-                line=int(msg["line"]) if msg.get("line") is not None else None,
-                column=int(msg["column"]) if msg.get("column") is not None else None,
-                message=str(msg.get("message", "")),
-            ))
+            out.append(
+                Finding(
+                    linter="eslint",
+                    rule_id=str(msg.get("ruleId") or "unknown"),
+                    file=path,
+                    line=int(msg["line"]) if msg.get("line") is not None else None,
+                    column=int(msg["column"])
+                    if msg.get("column") is not None
+                    else None,
+                    message=str(msg.get("message", "")),
+                )
+            )
     return out
 
 
@@ -156,8 +175,13 @@ _LINTERS = {
         "parse": _parse_ruff,
     },
     "eslint": {
-        "markers": [".eslintrc.json", ".eslintrc.cjs", ".eslintrc.js",
-                    "eslint.config.js", "eslint.config.mjs"],
+        "markers": [
+            ".eslintrc.json",
+            ".eslintrc.cjs",
+            ".eslintrc.js",
+            "eslint.config.js",
+            "eslint.config.mjs",
+        ],
         "argv": ["npx", "--no-install", "eslint", "--format", "json"],
         "default_paths": ["."],
         "parse": _parse_eslint,

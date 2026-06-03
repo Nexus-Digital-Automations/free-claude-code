@@ -83,6 +83,7 @@ def _extract_attr(obj: object, name: str) -> int | None:
         # if a provider ever returns e.g. a string in a numeric token field.
         logger.debug(
             "REPO_INDEX: cache_stats coerce_failed attr={} value_type={}",
-            name, type(val).__name__,
+            name,
+            type(val).__name__,
         )
         return None

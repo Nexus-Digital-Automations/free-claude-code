@@ -30,9 +30,10 @@ class ParsedFile:
     # Counterpart: tagger.parse_repo creates these; tagger.extract_tags_from_parsed
     # and context_optimizer.repo_index.dep_graph consume them.
     """
+
     rel_path: str
     abs_path: str
-    language: str       # tree-sitter-language-pack identifier, e.g. "python"
+    language: str  # tree-sitter-language-pack identifier, e.g. "python"
     source: bytes
     tree: Any
 
@@ -48,9 +49,9 @@ class FileRank:
 class Chunk:
     """One chunk of text from the Repomix render, used for embedding-based retrieval."""
 
-    source_file: str   # repo-relative path of the originating file section
-    chunk_index: int   # 0-based index within source_file's section
-    text: str          # raw text of this chunk (stripped)
+    source_file: str  # repo-relative path of the originating file section
+    chunk_index: int  # 0-based index within source_file's section
+    text: str  # raw text of this chunk (stripped)
     token_count: int
 
 
@@ -64,9 +65,9 @@ class IndexManifest:
     commit_hash: str
     repo_root: str
     top_n: int
-    ranked_files: list[str]       # rel_paths in alphabetical order (deterministic)
-    chunks: list[dict]             # serialisable: {source_file, chunk_index, text, token_count}
-    build_timestamp_utc: str       # ISO-8601
+    ranked_files: list[str]  # rel_paths in alphabetical order (deterministic)
+    chunks: list[dict]  # serialisable: {source_file, chunk_index, text, token_count}
+    build_timestamp_utc: str  # ISO-8601
     embedding_model: str
 
 

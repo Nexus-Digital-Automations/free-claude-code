@@ -63,7 +63,8 @@ def reset_for_test() -> None:
 
 
 async def apply(
-    messages: list[dict], settings: ContextOptimizerSettings,
+    messages: list[dict],
+    settings: ContextOptimizerSettings,
 ) -> list[dict]:
     """Replace eligible historical user-text blocks with digests.
 
@@ -94,7 +95,8 @@ async def apply(
 
 
 def _find_candidates(
-    messages: list[dict], min_bytes: int,
+    messages: list[dict],
+    min_bytes: int,
 ) -> list[tuple[int, int, str]]:
     """Return [(msg_idx, block_idx, text), ...] for eligible blocks.
 
@@ -170,7 +172,8 @@ async def _digest_misses(
     except asyncio.TimeoutError:
         logger.warning(
             "CONTEXT_OPT: tier0d batch_timeout misses={} timeout_s={}",
-            len(miss_indices), settings.tier0d_digest_timeout_seconds,
+            len(miss_indices),
+            settings.tier0d_digest_timeout_seconds,
         )
         return {}
 
@@ -192,7 +195,10 @@ async def _digest_misses(
         logger.info(
             "CONTEXT_OPT: tier0d digesting bytes_before={} bytes_after={} "
             "count={} latency_ms={}",
-            bytes_before, bytes_after, len(out), elapsed_ms,
+            bytes_before,
+            bytes_after,
+            len(out),
+            elapsed_ms,
         )
     return out
 
@@ -219,14 +225,16 @@ async def _digest_one(
     except Exception as exc:
         logger.warning(
             "CONTEXT_OPT: tier0d digest_failed {}: {}",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
         return None
 
     digest = parse_digest_response(content)
     if digest is None:
         logger.warning(
-            "CONTEXT_OPT: tier0d parse_error first_200={!r}", content[:200],
+            "CONTEXT_OPT: tier0d parse_error first_200={!r}",
+            content[:200],
         )
         return None
     return digest

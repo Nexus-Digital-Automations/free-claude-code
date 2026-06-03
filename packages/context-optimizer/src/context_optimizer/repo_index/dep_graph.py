@@ -55,6 +55,7 @@ class Import:
     import of `requests`). Clients use the presence/absence to decide
     whether to follow the edge.
     """
+
     raw: str
     line: int
     resolved: str | None
@@ -72,6 +73,7 @@ class DepGraph:
     `language_by_file` lets the MCP wrapper echo the per-language resolution
     tier without re-detecting from extension.
     """
+
     tree_sha: str
     by_file: dict[str, list[Import]]
     importers: dict[str, set[str]]
@@ -161,7 +163,9 @@ def build_for_repo(repo_root: str) -> DepGraph:
 
 def _build(repo_root: str, tree_sha: str) -> DepGraph:
     """Parse every tracked file, extract imports, resolve, build inverse map."""
-    logger.info("REPO_INDEX: dep_graph build_start repo={} sha={}", repo_root, tree_sha[:8])
+    logger.info(
+        "REPO_INDEX: dep_graph build_start repo={} sha={}", repo_root, tree_sha[:8]
+    )
     file_paths = _list_tracked_files(repo_root)
     parsed = tagger.parse_repo(repo_root, file_paths)
 
@@ -188,7 +192,9 @@ def _build(repo_root: str, tree_sha: str) -> DepGraph:
 
     logger.info(
         "REPO_INDEX: dep_graph build_done repo={} files_with_edges={} importers={}",
-        repo_root, len(by_file), len(importers),
+        repo_root,
+        len(by_file),
+        len(importers),
     )
     return DepGraph(
         tree_sha=tree_sha,

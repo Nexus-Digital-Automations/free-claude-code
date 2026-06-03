@@ -15,12 +15,17 @@ from context_optimizer.tiers import tier0e
 def _tool_use(call_id: str, name: str, input_dict: dict) -> dict:
     return {
         "role": "assistant",
-        "content": [{"type": "tool_use", "id": call_id, "name": name, "input": input_dict}],
+        "content": [
+            {"type": "tool_use", "id": call_id, "name": name, "input": input_dict}
+        ],
     }
 
 
 def _tool_result(
-    call_id: str, content: object, *, is_error: bool | None = None,
+    call_id: str,
+    content: object,
+    *,
+    is_error: bool | None = None,
 ) -> dict:
     block: dict = {"type": "tool_result", "tool_use_id": call_id, "content": content}
     if is_error is not None:

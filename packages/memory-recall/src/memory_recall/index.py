@@ -118,7 +118,9 @@ def refresh_directory(conn: sqlite3.Connection, root: Path) -> int:
 
 
 def search(
-    conn: sqlite3.Connection, query: str, limit: int,
+    conn: sqlite3.Connection,
+    query: str,
+    limit: int,
 ) -> list[SearchHit]:
     """Run an FTS5 MATCH query, return ranked hits.
 
@@ -211,14 +213,19 @@ def _upsert(conn: sqlite3.Connection, record: PlanRecord) -> None:
     """FTS5 has no UPSERT; emulate via DELETE-then-INSERT in one txn."""
     with conn:
         conn.execute(
-            "DELETE FROM plans WHERE source_path = ?", (record.source_path,),
+            "DELETE FROM plans WHERE source_path = ?",
+            (record.source_path,),
         )
         conn.execute(
             "INSERT INTO plans (source_path, title, status, content, "
             "                   created_at, indexed_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (
-                record.source_path, record.title, record.status,
-                record.content, record.created_at, record.indexed_at,
+                record.source_path,
+                record.title,
+                record.status,
+                record.content,
+                record.created_at,
+                record.indexed_at,
             ),
         )

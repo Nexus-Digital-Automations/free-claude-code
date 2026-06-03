@@ -40,7 +40,8 @@ def reset_for_test() -> None:
 
 
 async def apply(
-    messages: list[dict], settings: ContextOptimizerSettings,
+    messages: list[dict],
+    settings: ContextOptimizerSettings,
 ) -> list[dict]:
     """Replace eligible tool_results with cached or freshly-digested summaries.
 
@@ -67,7 +68,8 @@ async def apply(
 
 
 def _find_candidates(
-    messages: list[dict], min_bytes: int,
+    messages: list[dict],
+    min_bytes: int,
 ) -> list[tuple[int, int, str, str]]:
     """Return [(msg_idx, block_idx, tool_name, content), ...] for eligible blocks."""
     out: list[tuple[int, int, str, str]] = []
@@ -128,7 +130,8 @@ async def _digest_all(
     except asyncio.TimeoutError:
         logger.warning(
             "CONTEXT_OPT: tier0b batch_timeout count={} timeout_s={}",
-            len(candidates), settings.tier0b_digest_timeout_seconds,
+            len(candidates),
+            settings.tier0b_digest_timeout_seconds,
         )
         return {}
 
@@ -148,7 +151,10 @@ async def _digest_all(
         logger.info(
             "CONTEXT_OPT: tier0b digesting bytes_before={} bytes_after={} "
             "count={} latency_ms={}",
-            bytes_before, bytes_after, len(out), elapsed_ms,
+            bytes_before,
+            bytes_after,
+            len(out),
+            elapsed_ms,
         )
     return out
 

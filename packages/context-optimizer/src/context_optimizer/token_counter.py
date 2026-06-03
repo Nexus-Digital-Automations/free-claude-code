@@ -42,7 +42,9 @@ def _get_encoder(tokenizer_name: str) -> object:
 
             tok = Tokenizer.from_pretrained(tokenizer_name)
             encoder = _HFEncoder(tok)
-            logger.info("TOKEN_COUNTER: loaded HuggingFace tokenizer {!r}", tokenizer_name)
+            logger.info(
+                "TOKEN_COUNTER: loaded HuggingFace tokenizer {!r}", tokenizer_name
+            )
         except Exception as exc:
             logger.warning(
                 "TOKEN_COUNTER: failed to load {!r} ({}); falling back to cl100k_base",

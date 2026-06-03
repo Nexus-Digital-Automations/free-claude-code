@@ -18,7 +18,9 @@ import re
 from .._core import strip_ansi
 
 _DEDUPE_PLACEHOLDER = "[identical to earlier tool result -- omitted]"
-_REMINDER_DEDUPE_PLACEHOLDER = "<system-reminder>[elided — identical to earlier]</system-reminder>"
+_REMINDER_DEDUPE_PLACEHOLDER = (
+    "<system-reminder>[elided — identical to earlier]</system-reminder>"
+)
 _REMINDER_RE = re.compile(r"<system-reminder>(.*?)</system-reminder>", re.DOTALL)
 
 
@@ -41,6 +43,7 @@ def apply(
 
 
 # ---- sub-operations ----
+
 
 def _strip_ansi(messages: list[dict]) -> list[dict]:
     result = []
@@ -132,7 +135,8 @@ def _dedupe_system_reminders(messages: list[dict]) -> list[dict]:
             for block in content:
                 if block.get("type") == "text":
                     new_text, block_changed = _dedupe_reminders_in_text(
-                        block.get("text", ""), seen,
+                        block.get("text", ""),
+                        seen,
                     )
                     if block_changed:
                         block = {**block, "text": new_text}
@@ -164,7 +168,10 @@ def _dedupe_reminders_in_text(text: str, seen: set[str]) -> tuple[str, bool]:
 
 
 def _truncate_long_outputs(
-    messages: list[dict], max_lines: int, head_lines: int, tail_lines: int,
+    messages: list[dict],
+    max_lines: int,
+    head_lines: int,
+    tail_lines: int,
 ) -> list[dict]:
     result = []
     changed = False

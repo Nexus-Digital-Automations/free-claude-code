@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "free-claude-code"
-version = "1.2.39"
+version = "2.1.0"
 description = "Middleware between Claude Code CLI (Anthropic API) and NVIDIA NIM"
 readme = "README.md"
 requires-python = ">=3.14.0"
@@ -127,6 +127,11 @@ markers = [
     "smoke_target(name): route a smoke test behind FCC_SMOKE_TARGETS",
     "xdist_group(name): group smoke provider items under pytest-xdist --dist=loadgroup",
 ]
+
+[tool.ty.src]
+# Standalone editable sub-packages are type-checked by their own tooling, not
+# the app's ty gate. The integration boundary (api/context_optimization.py) is.
+exclude = ["packages/**"]
 
 [tool.ty.environment]
 python-version = "3.14"

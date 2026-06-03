@@ -72,14 +72,23 @@ def render_with_repomix(
         )
 
         cmd = [
-            "npx", "--yes", "repomix",
-            "--config", str(config_path),
-            "--output-format", "markdown",
-            "--output", "/dev/stdout",
+            "npx",
+            "--yes",
+            "repomix",
+            "--config",
+            str(config_path),
+            "--output-format",
+            "markdown",
+            "--output",
+            "/dev/stdout",
             *(extra_args or []),
         ]
 
-        logger.info("REPO_INDEX: renderer repomix_start files={} root={}", len(include_files), repo_root)
+        logger.info(
+            "REPO_INDEX: renderer repomix_start files={} root={}",
+            len(include_files),
+            repo_root,
+        )
         try:
             result = subprocess.run(
                 cmd,
@@ -89,19 +98,29 @@ def render_with_repomix(
                 timeout=timeout_seconds,
             )
         except FileNotFoundError:
-            logger.warning("REPO_INDEX: renderer npx_missing files={}", len(include_files))
+            logger.warning(
+                "REPO_INDEX: renderer npx_missing files={}", len(include_files)
+            )
             raise FileNotFoundError(
                 "npx not found — install Node.js or set repo_index_repomix_timeout to use render_fallback()"
             )
         except subprocess.TimeoutExpired:
-            logger.warning("REPO_INDEX: renderer repomix_timeout files={} timeout_s={}",
-                           len(include_files), timeout_seconds)
+            logger.warning(
+                "REPO_INDEX: renderer repomix_timeout files={} timeout_s={}",
+                len(include_files),
+                timeout_seconds,
+            )
             raise
 
         if result.returncode != 0:
-            logger.warning("REPO_INDEX: renderer repomix_nonzero rc={} stderr={!r}",
-                           result.returncode, result.stderr[:200])
-            raise RuntimeError(f"repomix exited {result.returncode}: {result.stderr[:500]}")
+            logger.warning(
+                "REPO_INDEX: renderer repomix_nonzero rc={} stderr={!r}",
+                result.returncode,
+                result.stderr[:200],
+            )
+            raise RuntimeError(
+                f"repomix exited {result.returncode}: {result.stderr[:500]}"
+            )
 
         logger.info("REPO_INDEX: renderer repomix_done bytes={}", len(result.stdout))
         return result.stdout
@@ -125,7 +144,11 @@ def render_fallback(repo_root: str, include_files: list[str]) -> str:
         try:
             content = Path(abs_path).read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            logger.debug("REPO_INDEX: renderer fallback_read_error file={} reason={}", rel_path, exc)
+            logger.debug(
+                "REPO_INDEX: renderer fallback_read_error file={} reason={}",
+                rel_path,
+                exc,
+            )
             content = f"<unreadable: {exc}>\n"
         parts.append(f"## File: {rel_path}\n\n```\n{content}\n```\n\n")
 

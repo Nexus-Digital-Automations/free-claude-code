@@ -47,14 +47,15 @@ def test_build_base_url_rejects_missing_required_settings() -> None:
     assert "VERTEX_PROJECT" in str(exc.value)
 
 
-def test_build_base_url_composes_regional_endpoint() -> None:
+def test_build_base_url_composes_regional_endpoint(monkeypatch) -> None:
     from config.settings import Settings
 
-    settings = Settings(
-        VERTEX_PROJECT="my-proj",
-        VERTEX_REGION="us-central1",
-        VERTEX_ENDPOINT_ID="1234567890",
-    )
+    # Settings fields use env-alias population (no populate_by_name); set the
+    # VERTEX_* env vars rather than passing field/alias kwargs.
+    monkeypatch.setenv("VERTEX_PROJECT", "my-proj")
+    monkeypatch.setenv("VERTEX_REGION", "us-central1")
+    monkeypatch.setenv("VERTEX_ENDPOINT_ID", "1234567890")
+    settings = Settings()
     url = _build_base_url(settings)
     assert url == (
         "https://us-central1-aiplatform.googleapis.com/v1/projects/my-proj"

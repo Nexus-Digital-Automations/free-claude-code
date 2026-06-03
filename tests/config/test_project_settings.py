@@ -47,6 +47,7 @@ def test_loads_block_from_settings_json(tmp_path):
         {"freeClaudeCode": {"models": {"sonnet": "deepseek/v4-flash"}}},
     )
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     assert isinstance(parsed, ProjectSettings)
     assert parsed.models.sonnet == "deepseek/v4-flash"
     assert parsed.models.opus is None
@@ -62,6 +63,7 @@ def test_local_overrides_base(tmp_path):
         {"freeClaudeCode": {"models": {"sonnet": "deepseek/local-wins"}}},
     )
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     assert parsed.models.sonnet == "deepseek/local-wins"
 
 
@@ -75,6 +77,7 @@ def test_local_merges_with_base_keys(tmp_path):
         {"freeClaudeCode": {"models": {"opus": "vertex/gemini-pro"}}},
     )
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     assert parsed.models.sonnet == "deepseek/base"
     assert parsed.models.opus == "vertex/gemini-pro"
 
@@ -108,6 +111,7 @@ def test_cache_invalidates_when_mtime_advances(tmp_path):
     settings_path = tmp_path / ".claude" / "settings.json"
     _write(settings_path, {"freeClaudeCode": {"models": {"sonnet": "deepseek/v1"}}})
     first = load_project_settings(tmp_path)
+    assert first is not None
     assert first.models.sonnet == "deepseek/v1"
 
     # Bump mtime forward to force re-read; some filesystems have 1s mtime
@@ -119,6 +123,7 @@ def test_cache_invalidates_when_mtime_advances(tmp_path):
     os.utime(settings_path, (new_mtime, new_mtime))
 
     second = load_project_settings(tmp_path)
+    assert second is not None
     assert second.models.sonnet == "deepseek/v2"
     assert second is not first
 
@@ -146,6 +151,7 @@ def test_model_for_classifies_by_substring(tmp_path, incoming, expected):
         },
     )
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     assert parsed.model_for(incoming) == expected
 
 
@@ -155,6 +161,7 @@ def test_model_for_falls_back_to_default(tmp_path):
         {"freeClaudeCode": {"models": {"default": "deepseek/v4-flash"}}},
     )
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     # No tier-specific override → use default for any incoming model.
     assert parsed.model_for("claude-opus-4-7") == "deepseek/v4-flash"
     assert parsed.model_for("claude-sonnet-4-6") == "deepseek/v4-flash"
@@ -163,4 +170,5 @@ def test_model_for_falls_back_to_default(tmp_path):
 def test_model_for_returns_none_when_no_overrides(tmp_path):
     _write(tmp_path / ".claude" / "settings.json", {"freeClaudeCode": {"models": {}}})
     parsed = load_project_settings(tmp_path)
+    assert parsed is not None
     assert parsed.model_for("claude-opus-4-7") is None

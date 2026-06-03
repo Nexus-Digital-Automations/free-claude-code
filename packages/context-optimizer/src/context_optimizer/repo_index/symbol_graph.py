@@ -55,6 +55,7 @@ class SymbolDef:
     sub-kinds (e.g. "def.class" vs "def.function") can land without a schema
     change.
     """
+
     file: str
     line: int
     kind: str = "def"
@@ -67,6 +68,7 @@ class SymbolRef:
     capture as `name.reference.*` — call sites, attribute reads, type
     annotations all qualify depending on the language's tags.scm.
     """
+
     file: str
     line: int
     kind: str = "ref"
@@ -81,6 +83,7 @@ class SymbolGraph:
     name appears in defs_by_name iff at least one tag with kind="def" named
     it; same for refs_by_name.
     """
+
     tree_sha: str
     defs_by_name: dict[str, list[SymbolDef]]
     refs_by_name: dict[str, list[SymbolRef]]
@@ -166,7 +169,9 @@ def _build(repo_root: str, tree_sha: str) -> SymbolGraph:
     `name.definition.*` / `name.reference.*` capture distinction in the
     per-language tags.scm files.
     """
-    logger.info("REPO_INDEX: symbol_graph build_start repo={} sha={}", repo_root, tree_sha[:8])
+    logger.info(
+        "REPO_INDEX: symbol_graph build_start repo={} sha={}", repo_root, tree_sha[:8]
+    )
     file_paths = _list_tracked_files(repo_root)
     parsed = tagger.parse_repo(repo_root, file_paths)
     tags_by_file = tagger.extract_tags_from_parsed(parsed)
@@ -190,7 +195,9 @@ def _build(repo_root: str, tree_sha: str) -> SymbolGraph:
 
     logger.info(
         "REPO_INDEX: symbol_graph build_done repo={} defs={} refs={}",
-        repo_root, len(defs_by_name), len(refs_by_name),
+        repo_root,
+        len(defs_by_name),
+        len(refs_by_name),
     )
     return SymbolGraph(
         tree_sha=tree_sha,

@@ -90,14 +90,14 @@ def test_ts_imported_by_links_main_to_helper(ts_repo: Path) -> None:
 def go_repo(tmp_path: Path) -> Path:
     repo = _make_repo(tmp_path, "go_fixture")
     (repo / "main.go").write_text(
-        'package main\n'
-        '\n'
-        'import (\n'
+        "package main\n"
+        "\n"
+        "import (\n"
         '    "fmt"\n'
         '    "github.com/example/lib"\n'
-        ')\n'
-        '\n'
-        'func main() { fmt.Println(lib.Hello) }\n'
+        ")\n"
+        "\n"
+        "func main() { fmt.Println(lib.Hello) }\n"
     )
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "init")
@@ -114,4 +114,6 @@ def test_go_imports_captured_with_raw_strings(go_repo: Path) -> None:
 def test_go_imports_remain_unresolved_under_raw_only_tier(go_repo: Path) -> None:
     edges = dep_graph.imports_of(str(go_repo), "main.go")
     for edge in edges:
-        assert edge.resolved is None, f"Go imports should be raw-only, got resolved={edge.resolved!r}"
+        assert edge.resolved is None, (
+            f"Go imports should be raw-only, got resolved={edge.resolved!r}"
+        )

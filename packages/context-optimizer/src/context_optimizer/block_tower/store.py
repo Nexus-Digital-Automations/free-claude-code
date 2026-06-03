@@ -49,12 +49,13 @@ class BlockHandle:
 
     # @stable
     """
+
     block_index: int
     range_start: int
     range_end: int
-    header: str        # one-line summary used by selector.py
+    header: str  # one-line summary used by selector.py
     body_path: Path
-    body_bytes: int    # cached file size for cheap token estimation
+    body_bytes: int  # cached file size for cheap token estimation
 
 
 class BlockStore:
@@ -96,7 +97,9 @@ class BlockStore:
         except Exception as exc:
             logger.warning(
                 "BLOCK_TOWER: load failed session={} reason={} {}",
-                session_key[:7], type(exc).__name__, exc,
+                session_key[:7],
+                type(exc).__name__,
+                exc,
             )
         cls._by_session[session_key] = store
         return store
@@ -120,25 +123,31 @@ class BlockStore:
             meta_path = self.session_dir / f"block-{block_index:04d}.meta.json"
             if not meta_path.is_file():
                 logger.warning(
-                    "BLOCK_TOWER: orphan block body skipped path={}", body_path,
+                    "BLOCK_TOWER: orphan block body skipped path={}",
+                    body_path,
                 )
                 continue
             meta = json.loads(meta_path.read_text())
-            self.blocks.append(BlockHandle(
-                block_index=block_index,
-                range_start=meta["range_start"],
-                range_end=meta["range_end"],
-                header=meta["header"],
-                body_path=body_path,
-                body_bytes=body_path.stat().st_size,
-            ))
+            self.blocks.append(
+                BlockHandle(
+                    block_index=block_index,
+                    range_start=meta["range_start"],
+                    range_end=meta["range_end"],
+                    header=meta["header"],
+                    body_path=body_path,
+                    body_bytes=body_path.stat().st_size,
+                )
+            )
         if self.blocks:
             logger.info(
                 "BLOCK_TOWER: loaded session={} blocks={}",
-                self.session_key[:7], len(self.blocks),
+                self.session_key[:7],
+                len(self.blocks),
             )
 
-    def seal(self, range_start: int, range_end: int, body: str, header: str) -> BlockHandle:
+    def seal(
+        self, range_start: int, range_end: int, body: str, header: str
+    ) -> BlockHandle:
         """Append a new block atomically. Raises ValueError on invalid range.
 
         Range invariants (raises ValueError if violated):
@@ -183,7 +192,10 @@ class BlockStore:
         except OSError as exc:
             logger.error(
                 "BLOCK_TOWER: seal write failed session={} index={} reason={} {}",
-                self.session_key[:7], next_index, type(exc).__name__, exc,
+                self.session_key[:7],
+                next_index,
+                type(exc).__name__,
+                exc,
             )
             for tmp in (body_tmp, meta_tmp):
                 tmp.unlink(missing_ok=True)
@@ -201,7 +213,11 @@ class BlockStore:
         self.requests_since_last_seal = 0
         logger.info(
             "BLOCK_TOWER: sealed session={} index={} range=[{}:{}] body_bytes={}",
-            self.session_key[:7], next_index, range_start, range_end, handle.body_bytes,
+            self.session_key[:7],
+            next_index,
+            range_start,
+            range_end,
+            handle.body_bytes,
         )
         return handle
 

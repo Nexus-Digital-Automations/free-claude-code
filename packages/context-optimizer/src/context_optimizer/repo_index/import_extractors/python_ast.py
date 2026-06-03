@@ -44,7 +44,11 @@ def extract_python_imports(parsed: ParsedFile) -> list[RawImport]:
     try:
         tree = ast.parse(parsed.source, filename=parsed.rel_path)
     except SyntaxError as exc:
-        logger.debug("REPO_INDEX: dep_graph python_parse_error file={} reason={}", parsed.rel_path, exc)
+        logger.debug(
+            "REPO_INDEX: dep_graph python_parse_error file={} reason={}",
+            parsed.rel_path,
+            exc,
+        )
         return []
     imports: list[RawImport] = []
     for node in ast.walk(tree):
