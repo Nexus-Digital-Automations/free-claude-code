@@ -138,9 +138,16 @@ def _parse_one(repo_root: str, abs_path: str) -> ParsedFile | None:
     if lang is None or _scm_path(lang) is None:
         return None
     try:
-        from tree_sitter_language_pack import get_parser
+        # Build the parser as Parser(get_language(...)) rather than
+        # get_parser(...). With standalone tree-sitter >=0.25 installed, the
+        # language-pack's get_parser returns a parser bound to its bundled
+        # core whose .parse() rejects bytes ("not an instance of 'str'"),
+        # while Parser(get_language(...)).parse(bytes) works — and matches how
+        # extract_tags_from_parsed already loads languages below.
+        from tree_sitter import Parser
+        from tree_sitter_language_pack import get_language
 
-        parser = get_parser(lang)
+        parser = Parser(get_language(lang))
     except Exception as exc:
         logger.debug(
             "REPO_INDEX: tagger lang_load_error file={} lang={} reason={}",
