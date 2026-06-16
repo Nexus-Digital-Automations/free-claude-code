@@ -41,7 +41,16 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 
 from .settings import ContextOptimizerSettings
-from .tiers import tier0, tier0b, tier0c, tier0d, tier0e, tier0f, tier1
+from .tiers import (
+    headroom_compress,
+    tier0,
+    tier0b,
+    tier0c,
+    tier0d,
+    tier0e,
+    tier0f,
+    tier1,
+)
 from .token_counter import count_tokens
 
 LLMProvider = Callable[[str], Awaitable[str]]
@@ -205,12 +214,18 @@ class ContextOptimizer:
                 before_bytes - after_bytes,
             )
 
-        # --- Tier 0b: Ollama tool-result digest ---
-        # Runs after Tier 0's mechanical truncation. Ollama produces a
-        # content-aware summary for tool_results above the byte threshold;
-        # the digest is content-hashed so identical inputs always yield the
-        # same bytes, keeping upstream prefix caches hot.
-        msgs = await tier0b.apply(msgs, settings)
+        # --- Tier 0b: tool-result digest (Headroom sidecar OR Ollama) ---
+        # Two mutually exclusive compressors target the same content (tool
+        # outputs): when headroom_enabled, the deterministic Headroom sidecar
+        # replaces the Ollama digester; otherwise Ollama runs. Never both, so
+        # tool outputs are compressed exactly once. Ollama produces a
+        # content-aware summary for tool_results above the byte threshold,
+        # content-hashed so identical inputs yield identical bytes (keeping
+        # upstream prefix caches hot).
+        if settings.headroom_enabled:
+            msgs = await headroom_compress.apply(msgs, settings)
+        else:
+            msgs = await tier0b.apply(msgs, settings)
 
         # --- Tier 0c: Ollama tool_use input compaction ---
         # Old assistant tool_use blocks with large input dicts (Edit, Write,

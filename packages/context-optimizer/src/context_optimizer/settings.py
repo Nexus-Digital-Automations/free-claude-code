@@ -68,6 +68,24 @@ class ContextOptimizerSettings:
     """LRU bound for the digest cache. Each entry stores one digest
     text keyed by SHA-256 of the original tool_result content."""
 
+    # ---- Headroom (HTTP sidecar tool-output compressor; replaces Tier 0b) ----
+    headroom_enabled: bool = False
+    """When True, the tool-output stage calls a Headroom compression sidecar's
+    /v1/compress endpoint instead of the Ollama Tier 0b digester. Headroom uses
+    deterministic structural compressors (SmartCrusher / log / code) — no Ollama,
+    faster, and it preserves anomalies/errors. Mutually exclusive with Tier 0b:
+    only one tool-output compressor runs per request (see optimizer.optimize).
+    Counterpart: tiers/headroom_compress.py."""
+
+    headroom_url: str = "http://127.0.0.1:8787"
+    """Base URL of the Headroom compression sidecar. The tier POSTs to
+    {headroom_url}/v1/compress."""
+
+    headroom_timeout_seconds: float = 10.0
+    """Per-request timeout for the sidecar call. On timeout, connection failure,
+    or a non-200 response the messages pass through uncompressed — a sidecar
+    outage never blocks or breaks the request."""
+
     # ---- Tier 0c (Ollama tool_use input digester) ----
     tier0c_digest_enabled: bool = True
     """Run Ollama digest on tool_use input blocks above the byte threshold,

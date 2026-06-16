@@ -52,6 +52,13 @@ class ContextOptimizer:
             tier0b_digest_enabled=settings.context_tier0b_digest_enabled,
             tier0b_digest_min_bytes=settings.context_tier0b_digest_min_bytes,
             tier0b_digest_timeout_seconds=settings.context_tier0b_digest_timeout_seconds,
+            headroom_enabled=getattr(settings, "context_headroom_enabled", False),
+            headroom_url=getattr(
+                settings, "context_headroom_url", "http://127.0.0.1:8787"
+            ),
+            headroom_timeout_seconds=getattr(
+                settings, "context_headroom_timeout_seconds", 10.0
+            ),
             tier0c_digest_enabled=settings.context_tier0c_digest_enabled,
             tier0c_digest_min_bytes=settings.context_tier0c_digest_min_bytes,
             tier0c_keep_recent_calls=settings.context_tier0c_keep_recent_calls,

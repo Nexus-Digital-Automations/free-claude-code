@@ -251,6 +251,23 @@ class Settings(BaseSettings):
     context_tier0e_enabled: bool = Field(
         default=True, validation_alias="CONTEXT_TIER0E_ENABLED"
     )
+    # ---- Headroom sidecar (deterministic tool-output compressor; when on,
+    # replaces the Ollama Tier 0b digester — they never both run) ----
+    context_headroom_enabled: bool = Field(
+        default=False, validation_alias="CONTEXT_HEADROOM_ENABLED"
+    )
+    context_headroom_url: str = Field(
+        default="http://127.0.0.1:8787",
+        validation_alias="CONTEXT_HEADROOM_URL",
+        description=(
+            "Base URL of the Headroom compression sidecar. The Tier 0b "
+            "replacement POSTs to {url}/v1/compress. Only used when "
+            "CONTEXT_HEADROOM_ENABLED is true."
+        ),
+    )
+    context_headroom_timeout_seconds: float = Field(
+        default=10.0, validation_alias="CONTEXT_HEADROOM_TIMEOUT_SECONDS"
+    )
     # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
     context_block_selection_mode: str = Field(
         default="selective",
