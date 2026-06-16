@@ -68,7 +68,7 @@ def rank_files(
         mul = _edge_multiplier(ident, len(definers))
         for referencer, num_refs in Counter(references[ident]).items():
             for definer in definers:
-                # math.isqrt over math.sqrt: deterministic integer floor sqrt avoids
+                # math.isqrt (not floating-point sqrt): deterministic integer floor avoids
                 # platform libm drift that can flip rank order on borderline ties.
                 # num_refs >= 1 (it comes from Counter), so isqrt is always >= 1.
                 G.add_edge(
