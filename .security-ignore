@@ -15,6 +15,14 @@
 # ssl/shell findings are upstream Aider's, not this codebase's.
 [tool:pattern-scanner] aider/**
 
+# Vendored Headroom project under packages/ (untracked, third-party Apache-2.0 —
+# the context-compression proxy being evaluated for token savings). Its findings
+# are upstream Headroom's, not this codebase's: hardcoded-credential hits are
+# fabricated unit-test fixtures (placeholder provider keys in tests/ and the Rust
+# proxy integration tests); gitleaks and detect-secrets flag none of them.
+# weak-hash MD5/SHA1 hits are non-cryptographic content/cache keys.
+[tool:pattern-scanner] packages/headroom/**
+
 # Generated mypy cache — not source code.
 packages/context-optimizer/.mypy_cache/**
 
