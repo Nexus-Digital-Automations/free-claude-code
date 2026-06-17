@@ -268,6 +268,21 @@ class Settings(BaseSettings):
     context_headroom_timeout_seconds: float = Field(
         default=10.0, validation_alias="CONTEXT_HEADROOM_TIMEOUT_SECONDS"
     )
+    context_headroom_autostart: bool = Field(
+        default=True,
+        validation_alias="CONTEXT_HEADROOM_AUTOSTART",
+        description=(
+            "When enabled, fcc-server manages the Headroom sidecar container "
+            "itself (starts it on startup via OrbStack, stops it on shutdown). "
+            "Set false to point CONTEXT_HEADROOM_URL at an externally-managed "
+            "sidecar instead. Only consulted when CONTEXT_HEADROOM_ENABLED is true."
+        ),
+    )
+    context_headroom_image: str = Field(
+        default="ghcr.io/chopratejas/headroom:latest",
+        validation_alias="CONTEXT_HEADROOM_IMAGE",
+        description="Container image for the auto-managed Headroom sidecar.",
+    )
     # ---- Block tower (Layer 0 — sole conversation-level compaction path) ----
     context_block_selection_mode: str = Field(
         default="selective",

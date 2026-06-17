@@ -13,6 +13,7 @@ from loguru import logger
 
 from api.admin_urls import local_admin_url
 from config.settings import Settings, get_settings
+from core import headroom_sidecar
 from providers.exceptions import ServiceUnavailableError
 from providers.registry import ProviderRegistry
 
@@ -110,6 +111,7 @@ class AppRuntime:
             warn_if_process_auth_token(self.settings)
             await self._validate_configured_models_best_effort()
             self._provider_registry.start_model_list_refresh(self.settings)
+            await headroom_sidecar.ensure_started(self.settings)
             await self._warm_up_ollama()
             await self._start_messaging_if_configured()
             self._publish_state()
@@ -199,6 +201,11 @@ class AppRuntime:
                 self._provider_registry.cleanup(),
                 log_verbose_errors=verbose,
             )
+        await best_effort(
+            "headroom_sidecar.stop",
+            headroom_sidecar.stop(self.settings),
+            log_verbose_errors=verbose,
+        )
         await self._shutdown_limiter()
         logger.info("Server shut down cleanly")
 
