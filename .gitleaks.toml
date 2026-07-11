@@ -1,0 +1,10 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholder credentials in the documented env template — never real secrets"
+paths = [
+  '''\.env\.example$''',
+]

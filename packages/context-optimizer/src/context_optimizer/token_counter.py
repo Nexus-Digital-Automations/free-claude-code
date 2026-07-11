@@ -8,24 +8,42 @@ Calls: tiktoken (bundled dep) or tokenizers (HuggingFace, optional).
 from __future__ import annotations
 
 import json
+from typing import Protocol
 
 import tiktoken
 from loguru import logger
 
-_ENCODER_CACHE: dict[str, object] = {}
+
+class _Encoder(Protocol):
+    """Structural type satisfied by both tiktoken.Encoding and _HFEncoder."""
+
+    def encode(self, text: str) -> list[int]: ...
+
+
+class _HFEncoding(Protocol):
+    ids: list[int]
+
+
+class _HFTokenizer(Protocol):
+    """Structural type satisfied by tokenizers.Tokenizer."""
+
+    def encode(self, text: str) -> _HFEncoding: ...
+
+
+_ENCODER_CACHE: dict[str, _Encoder] = {}
 
 
 class _HFEncoder:
     """Wraps tokenizers.Tokenizer to expose tiktoken-compatible encode()."""
 
-    def __init__(self, tok: object) -> None:
+    def __init__(self, tok: _HFTokenizer) -> None:
         self._tok = tok
 
     def encode(self, text: str) -> list[int]:
-        return self._tok.encode(text).ids  # type: ignore[attr-defined]
+        return self._tok.encode(text).ids
 
 
-def _get_encoder(tokenizer_name: str) -> object:
+def _get_encoder(tokenizer_name: str) -> _Encoder:
     """Return a cached encoder for tokenizer_name.
 
     Supports tiktoken encoding names (e.g. 'cl100k_base') and HuggingFace
@@ -35,10 +53,10 @@ def _get_encoder(tokenizer_name: str) -> object:
     if tokenizer_name in _ENCODER_CACHE:
         return _ENCODER_CACHE[tokenizer_name]
 
-    encoder: object
+    encoder: _Encoder
     if "/" in tokenizer_name:
         try:
-            from tokenizers import Tokenizer  # type: ignore[import]
+            from tokenizers import Tokenizer
 
             tok = Tokenizer.from_pretrained(tokenizer_name)
             encoder = _HFEncoder(tok)
@@ -76,31 +94,31 @@ def count_tokens(
 
     if system:
         if isinstance(system, str):
-            total += len(enc.encode(system))  # type: ignore[union-attr]
+            total += len(enc.encode(system))
         elif isinstance(system, list):
             for block in system:
                 text = block.get("text", "") if isinstance(block, dict) else str(block)
-                total += len(enc.encode(str(text)))  # type: ignore[union-attr]
+                total += len(enc.encode(str(text)))
         total += 4  # system block framing
 
     for msg in messages:
         content = msg.get("content", "")
         if isinstance(content, str):
-            total += len(enc.encode(content))  # type: ignore[union-attr]
+            total += len(enc.encode(content))
         elif isinstance(content, list):
             for block in content:
                 if not isinstance(block, dict):
-                    total += len(enc.encode(str(block)))  # type: ignore[union-attr]
+                    total += len(enc.encode(str(block)))
                     continue
                 btype = block.get("type")
                 if btype == "text":
-                    total += len(enc.encode(str(block.get("text", ""))))  # type: ignore[union-attr]
+                    total += len(enc.encode(str(block.get("text", ""))))
                 elif btype == "thinking":
-                    total += len(enc.encode(str(block.get("thinking", ""))))  # type: ignore[union-attr]
+                    total += len(enc.encode(str(block.get("thinking", ""))))
                 elif btype == "tool_use":
-                    total += len(enc.encode(str(block.get("name", ""))))  # type: ignore[union-attr]
-                    total += len(enc.encode(json.dumps(block.get("input", {}))))  # type: ignore[union-attr]
-                    total += len(enc.encode(str(block.get("id", ""))))  # type: ignore[union-attr]
+                    total += len(enc.encode(str(block.get("name", ""))))
+                    total += len(enc.encode(json.dumps(block.get("input", {}))))
+                    total += len(enc.encode(str(block.get("id", ""))))
                     total += 15
                 elif btype == "tool_result":
                     raw = block.get("content", "") or ""
@@ -108,13 +126,13 @@ def count_tokens(
                         raw = " ".join(
                             b.get("text", "") for b in raw if isinstance(b, dict)
                         )
-                    total += len(enc.encode(str(raw)))  # type: ignore[union-attr]
+                    total += len(enc.encode(str(raw)))
                     total += 8
                 else:
                     try:
-                        total += len(enc.encode(json.dumps(block)))  # type: ignore[union-attr]
+                        total += len(enc.encode(json.dumps(block)))
                     except (TypeError, ValueError):
-                        total += len(enc.encode(str(block)))  # type: ignore[union-attr]
+                        total += len(enc.encode(str(block)))
         total += 4  # per-message framing
 
     if tools:
@@ -127,7 +145,7 @@ def count_tokens(
                 )
             else:
                 tool_str = str(tool)
-            total += len(enc.encode(tool_str))  # type: ignore[union-attr]
+            total += len(enc.encode(tool_str))
         total += len(tools) * 5
 
     total += len(messages) * 4

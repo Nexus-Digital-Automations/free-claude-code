@@ -85,9 +85,11 @@ async def test_auth_static_token_fallback_when_adc_unavailable() -> None:
 async def test_auth_raises_when_no_creds_and_no_static_token() -> None:
     """Missing both ADC and static token must surface a clear AuthenticationError."""
     auth = VertexAuthProvider(static_token="")
-    with _mock_adc_unavailable("ADC default() failed: no credentials"):
-        with pytest.raises(AuthenticationError) as exc:
-            await auth.get_token()
+    with (
+        _mock_adc_unavailable("ADC default() failed: no credentials"),
+        pytest.raises(AuthenticationError) as exc,
+    ):
+        await auth.get_token()
     msg = str(exc.value)
     assert "VERTEX_ACCESS_TOKEN" in msg
     assert "google-auth" in msg or "ADC" in msg

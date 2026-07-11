@@ -17,6 +17,7 @@ import hashlib
 import os
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -399,6 +400,7 @@ def _enforce_token_cap(
     token_ceiling: int,
 ) -> tuple[str, list[str]]:
     """Reduce file count by 5 at a time until the rendered prefix fits within token_ceiling."""
+    count: Callable[[str], int]
     try:
         import tiktoken
 
@@ -408,7 +410,7 @@ def _enforce_token_cap(
             return len(enc.encode(s))
     except Exception:
 
-        def count(s: str) -> int:  # type: ignore[misc]
+        def count(s: str) -> int:
             return len(s) // 4
 
     while count(prefix_text) > token_ceiling and len(top_files) > 5:

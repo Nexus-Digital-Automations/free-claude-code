@@ -187,12 +187,10 @@ def _load_and_refresh_adc(
         if expiry is None:
             expires_at_monotonic = time.monotonic() + _STATIC_TOKEN_TTL_SECONDS
         else:
-            from datetime import datetime, timezone
+            from datetime import UTC, datetime
 
-            now_utc = datetime.now(timezone.utc)
-            expiry_utc = (
-                expiry if expiry.tzinfo else expiry.replace(tzinfo=timezone.utc)
-            )
+            now_utc = datetime.now(UTC)
+            expiry_utc = expiry if expiry.tzinfo else expiry.replace(tzinfo=UTC)
             seconds_to_expiry = max(0.0, (expiry_utc - now_utc).total_seconds())
             expires_at_monotonic = time.monotonic() + seconds_to_expiry
 
