@@ -11,9 +11,8 @@ import time
 import webbrowser
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+import httpx
 import uvicorn
 
 from api.admin_urls import local_admin_url, local_proxy_root_url
@@ -192,19 +191,13 @@ def _preflight_proxy(proxy_root_url: str) -> str | None:
     """Return an error message when the local proxy health check is unreachable."""
 
     url = f"{proxy_root_url.rstrip('/')}{PROXY_PREFLIGHT_PATH}"
-    request = Request(url, method="GET")
     try:
-        with urlopen(request, timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS) as response:
-            status_code = response.getcode()
-    except HTTPError as exc:
-        return f"returned HTTP {exc.code}"
-    except URLError as exc:
-        return str(exc.reason)
-    except OSError as exc:
+        response = httpx.get(url, timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS)
+    except httpx.HTTPError as exc:
         return str(exc)
 
-    if not 200 <= status_code < 300:
-        return f"returned HTTP {status_code}"
+    if not 200 <= response.status_code < 300:
+        return f"returned HTTP {response.status_code}"
     return None
 
 
