@@ -254,7 +254,7 @@ class Settings(BaseSettings):
     # ---- Headroom sidecar (deterministic tool-output compressor; when on,
     # replaces the Ollama Tier 0b digester — they never both run) ----
     context_headroom_enabled: bool = Field(
-        default=False, validation_alias="CONTEXT_HEADROOM_ENABLED"
+        default=True, validation_alias="CONTEXT_HEADROOM_ENABLED"
     )
     context_headroom_url: str = Field(
         default="http://127.0.0.1:8787",

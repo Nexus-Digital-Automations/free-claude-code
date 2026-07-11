@@ -69,7 +69,7 @@ class ContextOptimizerSettings:
     text keyed by SHA-256 of the original tool_result content."""
 
     # ---- Headroom (HTTP sidecar tool-output compressor; replaces Tier 0b) ----
-    headroom_enabled: bool = False
+    headroom_enabled: bool = True
     """When True, the tool-output stage calls a Headroom compression sidecar's
     /v1/compress endpoint instead of the Ollama Tier 0b digester. Headroom uses
     deterministic structural compressors (SmartCrusher / log / code) — no Ollama,
