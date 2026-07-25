@@ -173,6 +173,19 @@ class ClaudeMessageHandler:
         # Generate node ID
         node_id = incoming.message_id
 
+        # Idempotency guard: platform reconnects/resumes (Telegram polling
+        # restart, Discord gateway RESUME) can redeliver the same message.
+        # Without this, each redelivery re-dispatches a brand new CLI session
+        # attempt against the identical prompt -- if the underlying session
+        # or rate limit is still exhausted, every redelivery fails instantly
+        # and fires its own duplicate status/error notification.
+        if (
+            node_id is not None
+            and self.tree_queue.get_tree_for_node(node_id) is not None
+        ):
+            logger.info(f"Ignoring duplicate delivery of message {node_id}")
+            return
+
         # Use pre-sent status (e.g. voice note) or send new
         status_text = self._get_initial_status(tree, parent_node_id)
         if incoming.status_message_id:

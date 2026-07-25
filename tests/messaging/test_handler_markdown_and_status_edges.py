@@ -220,9 +220,13 @@ async def test_handle_message_reply_with_tree_but_no_parent_treated_as_new():
     session_store = MagicMock()
     handler = ClaudeMessageHandler(platform, cli_manager, session_store)
 
-    # Force "tree exists but parent can't be resolved" branch.
+    # Force "tree exists but parent can't be resolved" branch for the reply
+    # lookup, while leaving the new message's own node_id ("m1") unseen so
+    # the duplicate-delivery guard doesn't short-circuit dispatch.
     mock_queue = MagicMock()
-    mock_queue.get_tree_for_node.return_value = object()
+    mock_queue.get_tree_for_node.side_effect = lambda node_id: (
+        object() if node_id == "some_reply" else None
+    )
     mock_queue.resolve_parent_node_id.return_value = None
     mock_queue.create_tree = AsyncMock(
         return_value=MagicMock(root_id="root", to_dict=MagicMock(return_value={"t": 1}))

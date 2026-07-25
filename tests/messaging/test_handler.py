@@ -218,6 +218,30 @@ async def test_handle_message_new_conversation(
 
 
 @pytest.mark.asyncio
+async def test_handle_message_duplicate_delivery_ignored(
+    handler, mock_platform, incoming_message_factory
+):
+    """A redelivered platform message (gateway resume, poll restart) must not
+    re-dispatch a second CLI session attempt or send a second status message."""
+    incoming = incoming_message_factory(text="hello", message_id="msg_dup")
+
+    # Simulate this exact message having already been dispatched once.
+    await handler.tree_queue.create_tree(
+        node_id="msg_dup", incoming=incoming, status_message_id="status_prev"
+    )
+
+    with (
+        patch.object(handler.tree_queue, "create_tree", AsyncMock()) as mock_create,
+        patch.object(handler.tree_queue, "enqueue", AsyncMock()) as mock_enqueue,
+    ):
+        await handler.handle_message(incoming)
+
+    mock_create.assert_not_called()
+    mock_enqueue.assert_not_called()
+    mock_platform.queue_send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_handle_message_queued(handler, mock_platform, incoming_message_factory):
     incoming = incoming_message_factory(text="hello", message_id="msg_1")
     mock_platform.queue_send_message.return_value = "status_123"
