@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     )
     # Context-optimizer reaches Ollama over the OpenAI-compatible /v1 surface;
     # its adapter appends /v1 to ollama_base_url rather than duplicating the URL.
-    ollama_model: str = Field(default="qwen2.5:7b", validation_alias="OLLAMA_MODEL")
+    ollama_model: str = Field(default="qwen3:8b", validation_alias="OLLAMA_MODEL")
     # Bounded await for the supervisor warm-up at app startup: long enough that
     # `ollama serve` boot + small-model warm completes on a warm box, short
     # enough that we don't block proxy startup if Ollama is missing.

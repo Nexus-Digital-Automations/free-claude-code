@@ -8,7 +8,7 @@ Quickstart:
 
     settings = ContextOptimizerSettings(
         compact_threshold_tokens=65_000,  # cold-start emergency seal threshold
-        ollama_model="qwen2.5:7b",
+        ollama_model="qwen3:8b",
     )
 
     new_messages, new_system, token_count = await ContextOptimizer.optimize(

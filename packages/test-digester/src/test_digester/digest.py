@@ -31,7 +31,7 @@ class FailureDigestConfig:
     """
 
     ollama_base_url: str = "http://localhost:11434/v1"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "qwen3:8b"
     compaction_max_tokens: int = 500
     compaction_temperature: float = 0.0
     context_compaction_keep_alive: str = "30m"

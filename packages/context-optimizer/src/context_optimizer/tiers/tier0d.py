@@ -35,6 +35,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from ..prompts import build_digest_prompt, parse_digest_response
+from ..settings import ollama_no_think_extra_body
 
 if TYPE_CHECKING:
     from ..settings import ContextOptimizerSettings
@@ -220,6 +221,7 @@ async def _digest_one(
                 max_tokens=settings.compaction_max_tokens,
                 temperature=settings.compaction_temperature,
                 stream=False,
+                extra_body=ollama_no_think_extra_body(settings.ollama_model),
             )
         content = resp.choices[0].message.content or ""
     except Exception as exc:

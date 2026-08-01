@@ -38,6 +38,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from .._core import content_hash
+from ..settings import ollama_no_think_extra_body
 from .prompts import build_select_prompt, parse_select_response
 from .store import BlockHandle
 
@@ -118,6 +119,7 @@ async def _ask_ollama(
                 max_tokens=200,
                 temperature=0.0,  # deterministic — same input must give same selection for cache stability
                 stream=False,
+                extra_body=ollama_no_think_extra_body(settings.ollama_model),
             )
         content = resp.choices[0].message.content or ""
     except Exception as exc:

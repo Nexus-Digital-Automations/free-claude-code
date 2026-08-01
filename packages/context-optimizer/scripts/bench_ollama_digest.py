@@ -129,13 +129,13 @@ _PROMPT_REGISTRY: tuple[PromptShape, ...] = (
 class _BenchConfig:
     """digest_core.DigestConfig protocol shape, mutable for per-model swaps.
 
-    Defaults mirror the proxy's hardcoded `qwen2.5:7b` setup so a benchmark
+    Defaults mirror the proxy's hardcoded `qwen3:8b` setup so a benchmark
     run uses production-equivalent settings across temperature, base URL,
     and keep-alive.
     """
 
     ollama_base_url: str = "http://localhost:11434/v1"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "qwen3:8b"
     compaction_max_tokens: int = 500
     compaction_temperature: float = 0.0
     context_compaction_keep_alive: str = "30m"
@@ -730,7 +730,7 @@ def _render_report(
     if recommended:
         lines.append(
             f"`{recommended}` — top-ranked composite with no stability or "
-            "failure-rate disqualifiers. Updating the five `qwen2.5:7b` "
+            "failure-rate disqualifiers. Updating the `qwen3:8b` "
             "defaults to this is a follow-up task."
         )
     else:
@@ -796,7 +796,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--models",
         type=lambda s: [m.strip() for m in s.split(",") if m.strip()],
-        default=["qwen2.5:7b", "qwen2.5-coder:7b", "qwen3-coder:8b"],
+        default=["qwen3:8b", "qwen3-coder:8b"],
         help="Comma-separated Ollama model tags to compare.",
     )
     parser.add_argument(

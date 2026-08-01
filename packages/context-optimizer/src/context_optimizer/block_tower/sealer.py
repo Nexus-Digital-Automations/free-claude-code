@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from openai import AsyncOpenAI
 
+from ..settings import ollama_no_think_extra_body
 from ..token_counter import count_tokens
 from .prompts import build_seal_prompt, parse_seal_response
 from .store import BlockStore
@@ -286,6 +287,7 @@ async def _compact_tail(
                 max_tokens=int(settings.block_target_summary_tokens * 1.5) + 200,
                 temperature=settings.compaction_temperature,
                 stream=False,
+                extra_body=ollama_no_think_extra_body(settings.ollama_model),
             )
         content = resp.choices[0].message.content or ""
     except Exception as exc:

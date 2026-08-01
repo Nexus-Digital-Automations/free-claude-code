@@ -39,7 +39,7 @@ class ContextOptimizerSettings:
 
     # ---- Ollama ----
     ollama_base_url: str = "http://localhost:11434/v1"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "qwen3:8b"
 
     # ---- Tier 0 ----
     tier0_max_lines: int = 120
@@ -278,3 +278,15 @@ class ContextOptimizerSettings:
     block_storage_dir: str | None = None
     """Directory under which `<session_key>/block-NNNN.txt` files live.
     None = <repo_root>/.context/blocks/ (auto-derived from cwd's git root)."""
+
+
+def ollama_no_think_extra_body(model: str) -> dict[str, str] | None:
+    """extra_body for chat.completions that disables qwen3 thinking.
+
+    qwen3 thinks by default and the reasoning is billed against max_tokens,
+    so a bounded digest/verdict call gets its content starved before any
+    output appears. Ollama's /v1 surface ignores `think: false` but honors
+    `reasoning_effort: "none"` as the off-switch (verified 2026-08-01).
+    Scoped to qwen3 so no unknown field reaches other model families.
+    """
+    return {"reasoning_effort": "none"} if "qwen3" in model else None

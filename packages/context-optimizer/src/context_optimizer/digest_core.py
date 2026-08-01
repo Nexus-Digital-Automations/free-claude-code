@@ -27,6 +27,8 @@ from typing import Callable, Protocol
 from loguru import logger
 from openai import AsyncOpenAI
 
+from .settings import ollama_no_think_extra_body
+
 
 class DigestConfig(Protocol):
     """Minimal config shape digest() needs.
@@ -126,6 +128,7 @@ async def _call_ollama(
                 max_tokens=config.compaction_max_tokens,
                 temperature=config.compaction_temperature,
                 stream=False,
+                extra_body=ollama_no_think_extra_body(config.ollama_model),
             )
         return resp.choices[0].message.content or ""
     except Exception as exc:
