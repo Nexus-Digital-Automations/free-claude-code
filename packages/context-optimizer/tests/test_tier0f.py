@@ -135,6 +135,36 @@ def test_last_user_message_protected_from_deletion():
     assert repeat in result[-1]["content"][0]["text"]
 
 
+def test_history_not_rewritten_when_last_user_message_repeats_it():
+    """An earlier message keeps its first occurrence even when the newest
+    user message repeats it, so its bytes don't depend on what comes later."""
+    repeat = _text_of_n_tokens(90)
+    msgs = [
+        _user_tool_result("a", f"history: {repeat}"),
+        _user_text(f"please review: {repeat}"),
+    ]
+    result = tier0f.apply(msgs, _settings())
+
+    assert result[0]["content"][0]["content"] == f"history: {repeat}"
+
+
+def test_prefix_stable_as_conversation_grows():
+    """Messages already sent are byte-identical on the next request, so the
+    provider's prefix cache still hits after tier0f runs."""
+    repeat = _text_of_n_tokens(90)
+    first = [
+        _user_tool_result("a", f"read: {repeat}"),
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        _user_text("next"),
+    ]
+    grown = [*first, _user_tool_result("b", f"read again: {repeat}")]
+
+    before = tier0f.apply(first, _settings())
+    after = tier0f.apply(grown, _settings())
+
+    assert after[: len(before)] == before
+
+
 # ---- determinism / idempotence ----
 
 

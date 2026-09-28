@@ -5,13 +5,19 @@ appears more than once across in-scope text spans of the request. Keeps the
 first occurrence verbatim; deletes every later occurrence with no replacement
 marker — bare deletion, by design.
 
-Read-only definer sources (their tokens act as "originals" but are NEVER
-deleted, only used to dedup messages against):
+Messages are processed in chronological order, so each message's rewrite
+depends only on the system prompt and the messages before it. That keeps
+already-sent messages byte-identical on the next request and preserves the
+provider's prefix cache.
+
+Read-only sources (their tokens act as "originals" but are NEVER deleted):
   - The system prompt — DeepSeek prefix-cache anchor; mutating it would
     invalidate caching for every subsequent request, costing far more than
-    dedup saves.
+    dedup saves. Registered before any message.
   - The last user message — the active query; deleting from it could
-    silently drop content the user just typed.
+    silently drop content the user just typed. Registered at its own
+    position, so it never deletes from earlier history: that would make
+    old messages change whenever a new one arrives.
 
 Operates on text-bearing locations only:
   - msg["content"] when str
@@ -97,23 +103,23 @@ def _dedupe(
     k: int,
     settings: ContextOptimizerSettings,
 ) -> list[dict]:
-    deletable = list(_collect_deletable_spans(messages, settings))
-    if not deletable:
+    spans = list(_collect_message_spans(messages, settings))
+    if not any(deletable for _, _, deletable in spans):
         return messages
 
     span_tokens: list[list[int]] = []
     seen: dict[int, list[tuple[int, int]]] = {}
 
-    for _, text in _collect_definer_spans(messages, system, settings):
-        toks = enc.encode(text)
-        sid = len(span_tokens)
-        span_tokens.append(toks)
-        _register(toks, sid, seen, k)
+    if settings.tier0f_skip_system and system:
+        for _, text in _system_spans(system):
+            toks = enc.encode(text)
+            _register(toks, len(span_tokens), seen, k)
+            span_tokens.append(toks)
 
     rewrites: dict[_Ref, str] = {}
-    for ref, text in deletable:
+    for ref, text, deletable in spans:
         toks = enc.encode(text)
-        deletions = _find_deletions(toks, span_tokens, seen, k)
+        deletions = _find_deletions(toks, span_tokens, seen, k) if deletable else []
         sid = len(span_tokens)
         span_tokens.append(toks)
         _register(toks, sid, seen, k)
@@ -220,32 +226,17 @@ def _rolling_hashes(tokens: list[int], k: int) -> Iterator[tuple[int, int]]:
 # ---- span collection ----
 
 
-def _collect_deletable_spans(
+def _collect_message_spans(
     messages: list[dict],
     settings: ContextOptimizerSettings,
-) -> Iterator[tuple[_Ref, str]]:
-    """Yield (ref, text) for every text-bearing span eligible for deletion."""
+) -> Iterator[tuple[_Ref, str, bool]]:
+    """Yield (ref, text, deletable) for every text-bearing span, in order."""
     last_user_idx = (
         _last_user_message_index(messages) if settings.tier0f_skip_last_user else -1
     )
     for msg_idx, msg in enumerate(messages):
-        if msg_idx == last_user_idx:
-            continue
-        yield from _spans_in_message(msg, msg_idx)
-
-
-def _collect_definer_spans(
-    messages: list[dict],
-    system: str | list | None,
-    settings: ContextOptimizerSettings,
-) -> Iterator[tuple[_Ref, str]]:
-    """Yield (ref, text) for read-only definer spans (system + last user)."""
-    if settings.tier0f_skip_system and system:
-        yield from _system_spans(system)
-    if settings.tier0f_skip_last_user:
-        idx = _last_user_message_index(messages)
-        if idx >= 0:
-            yield from _spans_in_message(messages[idx], idx)
+        for ref, text in _spans_in_message(msg, msg_idx):
+            yield ref, text, msg_idx != last_user_idx
 
 
 def _system_spans(system: str | list) -> Iterator[tuple[_Ref, str]]:

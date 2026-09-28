@@ -155,10 +155,11 @@ class ContextOptimizerSettings:
     once across messages. First occurrence kept verbatim; later occurrences
     deleted with no replacement marker.
 
-    System prompt and last user message act as read-only definer sources:
-    their content can never be deleted (system protects DeepSeek's prefix
-    cache; last user message protects the active query) but spans inside
-    them register as "originals" so messages duplicating them get cleaned.
+    Messages are scanned oldest first, so a message's rewrite never depends
+    on later messages and the prefix cache survives. System prompt and last
+    user message are read-only: their content is never deleted (system
+    protects DeepSeek's prefix cache; last user message protects the active
+    query). System spans register as "originals" before any message.
 
     Default ON. Counterpart: tiers/tier0f.py."""
 
