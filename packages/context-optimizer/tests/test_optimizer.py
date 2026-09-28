@@ -1,7 +1,7 @@
 """Integration and unit tests for context_optimizer package.
 
 Covers: Tier 0 cleanup, Tier 1 thinking strip, Tier 0b/0c/0d Ollama digests,
-and the block tower's emergency-seal placeholder fallback.
+and the block tower's emergency-seal failure handling.
 """
 
 import pytest
@@ -360,19 +360,16 @@ async def test_tier0d_skips_short_user_text():
     assert result is msgs
 
 
-# ---- Block tower seal_sync emergency placeholder fallback ----
+# ---- Block tower seal_sync failure: never drop history ----
 
 
 @pytest.mark.asyncio
-async def test_seal_sync_writes_placeholder_when_ollama_unreachable(
-    tmp_path, monkeypatch
-):
-    """When Ollama is unreachable, seal_sync writes a deterministic placeholder block.
+async def test_seal_sync_keeps_history_when_ollama_unreachable(tmp_path, monkeypatch):
+    """When the summariser fails, seal_sync seals nothing.
 
-    The placeholder must satisfy the same immutability invariant as a real
-    block (range_start = previous range_end, body bytes deterministic). Two
-    seals with the same tail produce byte-identical placeholders so prefix
-    caches stay stable.
+    Sealing a content-free placeholder would make optimize() trim every
+    message before the boundary, silently deleting the whole conversation.
+    Serving the request uncompacted is always the safer failure.
     """
     from context_optimizer.block_tower import seal_sync
     from context_optimizer.block_tower.store import BlockStore
@@ -392,12 +389,70 @@ async def test_seal_sync_writes_placeholder_when_ollama_unreachable(
     sealed_real = await seal_sync(store, messages, settings)
 
     assert sealed_real is False, "ollama-down path returns False"
-    assert len(store.blocks) == 1
-    assert store.blocks[0].range_start == 0
-    assert store.blocks[0].range_end == 3
-    assert "truncation" in store.blocks[0].header.lower()
-    body = store.read_body(store.blocks[0])
-    assert "3 messages omitted" in body
+    assert store.blocks == []
+
+
+@pytest.mark.asyncio
+async def test_seal_sync_backs_off_after_failure(tmp_path, monkeypatch):
+    """A failed emergency seal is not retried on every request.
+
+    Without the back-off a slow summariser adds the full sync timeout to
+    each request of an over-threshold session.
+    """
+    from context_optimizer.block_tower import sealer, seal_sync
+    from context_optimizer.block_tower.store import BlockStore
+
+    BlockStore.reset_for_test()
+    calls = 0
+
+    async def failing_compact(_tail, _settings):
+        nonlocal calls
+        calls += 1
+        return None
+
+    monkeypatch.setattr(sealer, "_compact_tail", failing_compact)
+
+    settings = ContextOptimizerSettings(block_storage_dir=str(tmp_path))
+    messages = [_msg("user", "hello world") for _ in range(3)]
+    store = BlockStore.get_or_build("session_backoff", tmp_path)
+
+    await seal_sync(store, messages, settings)
+    await seal_sync(store, messages, settings)
+
+    assert calls == 1
+    assert store.blocks == []
+
+
+@pytest.mark.asyncio
+async def test_optimize_keeps_all_messages_when_emergency_seal_fails(
+    tmp_path, monkeypatch
+):
+    """End to end: an over-threshold request with no summariser keeps history."""
+    from context_optimizer.block_tower import sealer
+    from context_optimizer.block_tower.store import BlockStore
+
+    BlockStore.reset_for_test()
+
+    async def failing_compact(_tail, _settings):
+        return None
+
+    monkeypatch.setattr(sealer, "_compact_tail", failing_compact)
+
+    settings = ContextOptimizerSettings(
+        block_storage_dir=str(tmp_path),
+        compact_threshold_tokens=10,
+        tier0f_enabled=False,
+    )
+    messages = [
+        _msg("user" if i % 2 == 0 else "assistant", f"turn {i} " * 20) for i in range(7)
+    ]
+
+    out, _sys, _tokens = await ContextOptimizer.optimize(
+        messages, system="sys", settings=settings
+    )
+
+    assert len(out) == len(messages)
+    assert out[0]["content"] == messages[0]["content"]
 
 
 @pytest.mark.asyncio
@@ -440,18 +495,15 @@ def _seal_real_block(store, range_start, range_end, body, header):
 @pytest.mark.asyncio
 async def test_ac1_block_files_appear_after_emergency_seal(tmp_path, monkeypatch):
     """AC1: low-threshold + multi-turn convo causes block-0001.txt + meta.json with content > 0."""
-    from context_optimizer.block_tower import seal_sync
+    from context_optimizer.block_tower import sealer, seal_sync
     from context_optimizer.block_tower.store import BlockStore
-    from context_optimizer.ollama_supervisor import OllamaSupervisor
 
     BlockStore.reset_for_test()
 
-    async def fake_ensure_ready(_settings):
-        return (
-            False  # forces the deterministic placeholder path — still a real file write
-        )
+    async def fake_compact(_tail, _settings):
+        return "turns 0-5", "Summary of six short turns."
 
-    monkeypatch.setattr(OllamaSupervisor, "ensure_ready", fake_ensure_ready)
+    monkeypatch.setattr(sealer, "_compact_tail", fake_compact)
 
     settings = ContextOptimizerSettings(
         block_storage_dir=str(tmp_path),

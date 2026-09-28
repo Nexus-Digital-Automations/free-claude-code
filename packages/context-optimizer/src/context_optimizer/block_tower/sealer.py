@@ -9,21 +9,21 @@ Two entry points exist:
   seal_sync             — bounded synchronous seal for emergencies (cold
                           start with a tail already over the hard token
                           budget). Blocks the live request; on Ollama
-                          timeout/failure writes a placeholder truncation
-                          block so the boundary moves forward and the
-                          request can complete safely.
+                          timeout/failure seals nothing, so the request
+                          goes out uncompacted.
 
 WHY math-based trigger for the background path: a fixed token threshold
 burns budget on short sessions whose tail will never be referenced enough
 to amortise the seal cost. The trigger here requires both a sizeable tail
 AND enough prior requests to suggest the session is long-lived.
 
-WHY a placeholder fallback in seal_sync: when the tower has zero blocks
-yet and tokens already exceed the hard limit, we can't proceed without
-moving the boundary. A real summary is preferred but if Ollama is down
-or slow we still need to ship the request rather than block forever.
-The placeholder is deterministic (same range → same bytes), so the
-prefix-cache hit story remains intact.
+WHY no placeholder fallback in seal_sync: sealing a block moves the
+boundary, and optimize() then drops every message before it. A block with
+no summary in it therefore deletes the whole conversation. The threshold
+is a cost target, far below any upstream context window, so an
+uncompacted request is always safe to send. After a failure the session
+backs off for _SYNC_SEAL_BACKOFF_SECONDS so a slow summariser does not add
+the sync timeout to every request.
 
 Does NOT own: BlockStore (store.py), Ollama daemon supervision
 (ollama_supervisor.py), or selection (selector.py).
@@ -37,6 +37,7 @@ Calls: BlockStore.seal, OllamaSupervisor.ensure_ready, AsyncOpenAI.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -56,8 +57,10 @@ if TYPE_CHECKING:
 # Ollama almost always finishes in time, short enough that a stuck daemon
 # cannot wedge an entire user request.
 _SYNC_SEAL_TIMEOUT_SECONDS = 12.0
+_SYNC_SEAL_BACKOFF_SECONDS = 300.0
 
 _inflight_sessions: set[str] = set()
+_sync_seal_backoff_until: dict[str, float] = {}
 _background_tasks: set[asyncio.Task] = set()
 
 
@@ -177,10 +180,9 @@ async def seal_sync(
     """Block until the uncompacted tail is sealed. Used as the cold-start
     emergency safety net when token count exceeds the hard threshold.
 
-    Returns True iff a real Ollama-summarised block was written; False iff
-    the call timed out / failed and a deterministic placeholder block was
-    written instead. Either outcome moves the immutability boundary
-    forward and lets the live request continue with a smaller tail.
+    Returns True iff a real Ollama-summarised block was written. On
+    timeout / failure nothing is sealed, the session backs off from further
+    sync seals for _SYNC_SEAL_BACKOFF_SECONDS, and False is returned.
 
     Never raises — even a write failure is logged and yields False, so
     callers can still serve the request (uncompacted) instead of erroring.
@@ -197,6 +199,8 @@ async def seal_sync(
     tail = messages[tail_start:]
     if not tail:
         return False
+    if time.monotonic() < _sync_seal_backoff_until.get(store.session_key, 0.0):
+        return False
 
     logger.info(
         "BLOCK_TOWER: seal_sync session={} tail_msgs={} timeout={}s",
@@ -211,14 +215,14 @@ async def seal_sync(
         )
     except asyncio.TimeoutError:
         logger.warning(
-            "BLOCK_TOWER: seal_sync timeout session={} timeout={}s — writing placeholder",
+            "BLOCK_TOWER: seal_sync timeout session={} timeout={}s",
             store.session_key[:7],
             _SYNC_SEAL_TIMEOUT_SECONDS,
         )
         result = None
 
     if result is None:
-        return _write_placeholder_block(store, tail_start, len(tail))
+        return _back_off(store)
 
     header, body = result
     try:
@@ -226,36 +230,25 @@ async def seal_sync(
         return True
     except (ValueError, OSError) as exc:
         logger.warning(
-            "BLOCK_TOWER: seal_sync apply failed session={} reason={} {} — writing placeholder",
+            "BLOCK_TOWER: seal_sync apply failed session={} reason={} {}",
             store.session_key[:7],
             type(exc).__name__,
             exc,
         )
-        return _write_placeholder_block(store, tail_start, len(tail))
+        return _back_off(store)
 
 
-def _write_placeholder_block(store: BlockStore, tail_start: int, tail_len: int) -> bool:
-    """Seal a deterministic truncation marker. Returns False to signal "not real summary".
-
-    The body bytes are a function of the message-count only, so two requests
-    that hit the same emergency boundary produce byte-identical placeholders
-    and prefix-cache hits remain stable.
-    """
-    body = (
-        f"Earlier conversation truncated due to emergency context-window pressure; "
-        f"{tail_len} messages omitted. The original content was not summarised "
-        f"because the local summariser did not respond in time."
+def _back_off(store: BlockStore) -> bool:
+    """Skip sync seals for this session for a while; serve uncompacted."""
+    _sync_seal_backoff_until[store.session_key] = (
+        time.monotonic() + _SYNC_SEAL_BACKOFF_SECONDS
     )
-    header = f"Truncation placeholder ({tail_len} messages)"
-    try:
-        store.seal(tail_start, tail_start + tail_len, body, header)
-    except (ValueError, OSError) as exc:
-        logger.error(
-            "BLOCK_TOWER: placeholder seal failed session={} reason={} {}",
-            store.session_key[:7],
-            type(exc).__name__,
-            exc,
-        )
+    logger.warning(
+        "BLOCK_TOWER: seal_sync failed session={} — sending uncompacted, "
+        "backing off {}s",
+        store.session_key[:7],
+        _SYNC_SEAL_BACKOFF_SECONDS,
+    )
     return False
 
 
@@ -313,3 +306,4 @@ def reset_for_test() -> None:
     # @internal — test isolation only.
     _inflight_sessions.clear()
     _background_tasks.clear()
+    _sync_seal_backoff_until.clear()

@@ -355,8 +355,8 @@ async def _apply_block_tower(
     # Cold-start emergency: tokens already over the hard threshold and the
     # tower has zero blocks yet. The async seal scheduled below would only
     # help future requests; we need synchronous compaction to bring THIS
-    # request under budget. seal_sync writes either a real Ollama summary or
-    # a deterministic placeholder block on timeout.
+    # request under budget. seal_sync writes a real Ollama summary or nothing;
+    # on failure the request goes out uncompacted rather than losing history.
     if not store.blocks and tokens >= settings.compact_threshold_tokens:
         await seal_sync(store, msgs, settings)
 
