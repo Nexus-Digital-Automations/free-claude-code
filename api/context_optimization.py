@@ -7,7 +7,8 @@ Does NOT own: tier logic, caching, Ollama management — all in the package.
 Lives under api/ (not core/) because it binds to api.models.anthropic; core/
 must stay neutral (see tests/contracts/test_import_boundaries.py).
 Called by: api/services.py ClaudeProxyService.create_message.
-Calls: context_optimizer.ContextOptimizer.optimize (the package).
+Calls: context_optimizer.ContextOptimizer.optimize (the package);
+api.token_savings.record_optimization (one savings row per request).
 
 @stable — ClaudeProxyService depends on ContextOptimizer.optimize() signature:
     async (request_data, settings) -> (request_data, int)
@@ -19,6 +20,10 @@ from typing import Any
 
 from context_optimizer import ContextOptimizer as _PkgOptimizer
 from context_optimizer import ContextOptimizerSettings as _PkgSettings
+from context_optimizer.block_tower.session_key import derive_session_key
+from context_optimizer.token_counter import count_tokens
+
+from api.token_savings import record_optimization
 
 
 class ContextOptimizer:
@@ -86,6 +91,14 @@ class ContextOptimizer:
             [t.model_dump() for t in request_data.tools] if request_data.tools else None
         )
 
+        # Counted before optimize(), which may rewrite these dicts in place.
+        tokens_before = count_tokens(
+            dict_messages,
+            dict_system,
+            dict_tools,
+            tokenizer_name=pkg_settings.tokenizer_name,
+        )
+        session_key = derive_session_key(dict_messages)
         out_messages, out_system, token_count = await _PkgOptimizer.optimize(
             messages=dict_messages,
             system=dict_system,
@@ -99,6 +112,7 @@ class ContextOptimizer:
                 "system": _dicts_to_system(out_system),
             }
         )
+        record_optimization(tokens_before, token_count, session_key)
         return new_request, token_count
 
 

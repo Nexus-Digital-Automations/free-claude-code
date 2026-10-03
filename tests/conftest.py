@@ -32,6 +32,14 @@ def _isolate_from_dotenv(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_token_savings_log(tmp_path, monkeypatch):
+    """Keep optimizer telemetry out of the live ~/.claude/logs savings log."""
+    monkeypatch.setenv(
+        "CLAUDE_TOKEN_SAVINGS_LOG", str(tmp_path / "token-savings.jsonl")
+    )
+
+
 @pytest.fixture
 def provider_config():
     from providers.base import ProviderConfig
